@@ -1,6 +1,6 @@
 {
   "name": "@bouncesecurity/aghast",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "AI Guided Hybrid Application Static Testing",
   "type": "module",
   "repository": {
