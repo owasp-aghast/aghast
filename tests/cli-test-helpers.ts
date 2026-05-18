@@ -65,6 +65,9 @@ export const perCheckModelConfigDir = resolve(testDir, 'fixtures', 'cli-configs'
 export const openantCheckConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'openant-check');
 export const mixedDiscoveryConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-discovery');
 export const unknownDiscoveryConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'unknown-discovery');
+export const semgrepDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'semgrep-diff-filter');
+export const sarifDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-diff-filter');
+export const openantDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'openant-diff-filter');
 
 // SARIF fixtures
 export const cli3TargetsSarif = resolve(testDir, 'fixtures', 'sarif', 'cli-3-targets.sarif');

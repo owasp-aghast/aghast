@@ -38,10 +38,21 @@ export interface DiscoveredTarget {
 
 /**
  * Options passed to a discovery implementation.
+ *
+ * Diff-related values (diffRef, diffFile) intentionally don't live here.
+ * Diff filtering is applied by the scan runner after discovery completes,
+ * so the discovery implementations don't need to know about the diff.
  */
 export interface DiscoveryOptions {
   /** Path to the target repository. */
   repositoryPath: string;
+  /**
+   * Path to a pre-generated OpenAnt dataset.
+   * When provided, discoveries that use OpenAnt (currently `openant`) skip their
+   * internal runOpenAnt call and read from this file instead. The scan runner sets
+   * this to share one OpenAnt invocation across discovery and the diff filter.
+   */
+  openantDatasetPath?: string;
 }
 
 // --- Target Discovery Interface ---
@@ -57,6 +68,15 @@ export interface TargetDiscovery {
   readonly defaultGenericPrompt: string;
   /** Whether checks using this discovery require an instructions file. */
   readonly needsInstructions: boolean;
+  /**
+   * Whether this discovery opts into automatic diff filtering when a diff
+   * source is available at scan time. True for all built-in discoveries today
+   * (semgrep, sarif, openant), since each returns targets with file/line info
+   * that can meaningfully be narrowed by the diff. Set false on a discovery
+   * whose output lacks file/line granularity or whose semantics make diff
+   * scoping nonsensical.
+   */
+  readonly supportsDiffFilter: boolean;
   /**
    * Discover targets in the repository for the given check.
    * Returns an array of targets with optional prompt enrichment.

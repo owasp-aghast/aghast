@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-sarif-diff-filter-test",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

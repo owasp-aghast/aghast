@@ -152,6 +152,24 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
+**Diff filtering activates whenever you supply a diff source.** You turn it on for a scan by providing a diff source — one of `--diff-ref`, `--diff-file`, `AGHAST_DIFF_REF`, runtime config `diffRef`, or a check-level `diffRef`. Once a diff source is present, every targeted check whose discovery supports it (`semgrep`, `sarif`) automatically has its findings narrowed to diff scope — no per-check field is required to opt in. The examples above run as diff-filtered scans in CI simply by passing `AGHAST_DIFF_REF`.
+
+**Opting out a single check** when you otherwise want diff filtering on for the scan run:
+
+```json
+{
+  "id": "aghast-supply-chain",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "semgrep",
+    "rules": "aghast-supply-chain.yaml",
+    "diffFilter": false
+  }
+}
+```
+
+Diff filtering works identically for `openant` discovery: the filter narrows the returned code units to those the diff touched (plus one call-graph hop). The OpenAnt invocation is shared between discovery and the filter so there's no double-run cost.
+
 | Field              | Type                          | Required | Description |
 |--------------------|-------------------------------|----------|-------------|
 | `id`               | `string`                      | Yes      | Must match the Layer 1 registry ID and folder name |
@@ -168,8 +186,10 @@ Each check folder contains a JSON definition file with the check's metadata.
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for targeted checks (default: 5) |
+| `checkTarget.diffFilter` | `boolean`              | No       | Set to `false` to skip diff filtering for this check even when a diff source is available. Default (omitted or `true`): filter automatically whenever a diff source is provided |
+| `checkTarget.diffRef` | `string`                  | No       | Git ref to diff against for this check (e.g. `main`, `HEAD~1`). Lowest-priority diff source: overridden by `--diff-ref`, `AGHAST_DIFF_REF`, then runtime config `diffRef`. `--diff-file` bypasses all of these (including this field) and uses the diff file directly (CLI only, no `AGHAST_DIFF_FILE` env var) |
 | `checkTarget.maxIssuesPerTarget` | `number`       | No       | Cap on issues returned per target. When set, only the first N entries of the AI's `issues` array are kept (excess dropped with a debug log). Use for checks whose prompt expects a single combined issue per target and where the model occasionally splits or duplicates findings. Omit for unlimited. |
-| `checkTarget.openant` | `object`                  | No       | OpenAnt unit filter config (only for `openant` discovery). See below |
+| `checkTarget.openant` | `object`                  | No       | Config which filters OpenAnt units to be considered based on their metadata. Applies to both `openant` discovery and also when the diff filter is being used. See below for fields |
 | `checkTarget.openant.unitTypes` | `string[]`       | No       | Include only these unit types (e.g. `["function", "method"]`) |
 | `checkTarget.openant.excludeUnitTypes` | `string[]` | No      | Exclude these unit types (e.g. `["test", "dunder_method"]`) |
 | `checkTarget.openant.securityClassifications` | `string[]` | No | Filter by OpenAnt classification (e.g. `["exploitable", "vulnerable_internal"]`) |
@@ -191,11 +211,28 @@ Each check folder contains a JSON definition file with the check's metadata.
 
 The `discovery` field on `checkTarget` specifies how targets are found for `targeted` and `static` checks:
 
-| Discovery | Requires | Description |
-|-----------|----------|-------------|
-| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations |
-| `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file |
-| `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context |
+| Discovery | Requires | Description | Supports diff filter |
+|-----------|----------|-------------|----------------------|
+| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations | Yes |
+| `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file | Yes |
+| `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
+
+### Diff filtering
+
+Diff filtering narrows a SARIF-producing discovery's output to findings touching code in a git diff. A finding is "in scope" if it overlaps a code unit directly changed by the diff, or is a direct caller or callee of a changed unit (using OpenAnt's call graph). Findings in files OpenAnt can't parse (config files, templates) are kept if the file itself appears in the diff.
+
+**Enabled automatically** whenever a diff source is provided and the check's discovery supports it. A diff source is either a pre-generated diff file (`--diff-file <path>`, CLI only) or a git ref — ref sources resolve in this precedence order:
+
+1. CLI `--diff-ref <ref>`
+2. Env var `AGHAST_DIFF_REF`
+3. Runtime config `diffRef`
+4. Check-level `checkTarget.diffRef`
+
+`--diff-file` (CLI only) bypasses this entire chain when supplied — the file is used directly, no ref resolution.
+
+If no diff source is set, checks run full-repo as usual — no filter, no error. To opt a specific check out of filtering even when a source is provided, set `checkTarget.diffFilter: false`.
+
+Diff filtering uses OpenAnt for the call graph (depth-1 mode). If OpenAnt isn't installed and no `AGHAST_OPENANT_DATASET` is provided, the filter falls back to **depth-0 mode** — keep only findings whose file and line range overlap a diff hunk, no call-graph flow. aghast logs a clear warning when this happens so the mode is visible. Install OpenAnt (or supply a prebuilt dataset) to enable depth-1 filtering with caller/callee adjacency. Useful in PR/CI pipelines to focus analysis on changed code. See [Scanning → CI usage](scanning.md#ci-usage--diff-scoped-scans-on-prs) for GitHub Actions / GitLab CI recipes.
 
 ## Check Instructions (`<id>.md`)
 
@@ -259,6 +296,7 @@ An optional `runtime-config.json` file in the config directory (or specified via
   },
   "genericPrompt": "generic-instructions.md",
   "failOnCheckFailure": false,
+  "diffRef": "main",
   "budget": {
     "perScan": { "maxCostUsd": 5.00, "maxTokens": 10000000 },
     "perPeriod": { "window": "day", "maxCostUsd": 25.00 },
@@ -300,6 +338,7 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `logging.level`                 | `string`   | `info` | Console log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `genericPrompt`                 | `string`   | `generic-instructions.md` | Generic prompt template filename |
 | `failOnCheckFailure`            | `boolean`  | `false` | Exit with code 1 if any check FAILs or ERRORs |
+| `diffRef`                       | `string`   | (none) | Git ref to diff against. Auto-activates diff filtering on every check whose discovery supports it, unless the check opts out via `diffFilter: false`. CLI `--diff-ref` takes precedence |
 | `budget.perScan.maxTokens`      | `number`   | (none) | Abort scan when accumulated tokens exceed this value |
 | `budget.perScan.maxCostUsd`     | `number`   | (none) | Abort scan when accumulated cost exceeds this USD value |
 | `budget.perPeriod.window`       | `string`   | (none) | `day`, `week`, or `month` window for the period limit |

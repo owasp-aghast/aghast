@@ -15,6 +15,7 @@ function stubDiscovery(name: string): TargetDiscovery {
     name,
     defaultGenericPrompt: `${name}-instructions.md`,
     needsInstructions: false,
+    supportsDiffFilter: false,
     async discover() {
       return [];
     },
@@ -107,5 +108,13 @@ describe('Built-in discoveries (loaded via scan-runner)', () => {
     assert.ok(names.includes('semgrep'), 'semgrep should be registered');
     assert.ok(names.includes('openant'), 'openant should be registered');
     assert.ok(names.includes('sarif'), 'sarif should be registered');
+    assert.ok(!names.includes('diff-semgrep'), 'diff-semgrep is no longer a discovery');
+  });
+
+  it('built-in discoveries declare diff-filter support correctly', async () => {
+    await import('../src/scan-runner.js');
+    assert.equal(getDiscovery('semgrep').supportsDiffFilter, true);
+    assert.equal(getDiscovery('sarif').supportsDiffFilter, true);
+    assert.equal(getDiscovery('openant').supportsDiffFilter, true);
   });
 });

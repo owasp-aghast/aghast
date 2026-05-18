@@ -45,6 +45,10 @@ The check is also registered in `checks-config.json`.
 
 See the [Configuration Reference](configuration.md#layer-2-check-definition-idjson) for the full check definition schema, including check types, severity levels, Semgrep target configuration, and path filtering.
 
+## Diff filtering
+
+Every targeted/static check you create automatically participates in [diff filtering](configuration.md#diff-filtering) when the scan is invoked with a diff source (e.g. `--diff-ref`, `AGHAST_DIFF_REF` in a PR workflow). Nothing in the check JSON is required to opt in. If a specific check should stay full-repo even during a diff-scoped scan, set `"diffFilter": false` on its `checkTarget`. See the [Configuration Reference](configuration.md#diff-filtering) for details.
+
 ---
 
 <p align="center">

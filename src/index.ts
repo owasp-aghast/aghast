@@ -32,6 +32,7 @@ import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_LOG_LEVEL, DEFAULT_LOG_TYPE } from './defaults.js';
 import { colorStatus } from './colors.js';
 import { getCheckType } from './check-types.js';
+import { getDiscovery, getRegisteredDiscoveries } from './discovery.js';
 import { createRequire } from 'node:module';
 
 const TAG = 'aghast';
@@ -103,6 +104,12 @@ General options:
   --model <model>            AI model override (e.g. claude-sonnet-4-20250514)
   --agent-provider <name>    Agent provider name (default: claude-code)
   --generic-prompt <file>    Generic prompt template filename in prompts/ dir
+  --diff-ref <ref>           Git ref to diff against (e.g. HEAD~1, main, SHA).
+                             Auto-activates diff filtering on every check whose
+                             discovery supports it, unless the check opts out
+                             via checkTarget.diffFilter: false.
+  --diff-file <path>         Path to pre-generated unified diff file
+                             (alternative to --diff-ref)
   --budget-limit-cost <usd>  Abort the scan when accumulated cost exceeds this
                              USD value. Warns at 80%, aborts at 100%
   --budget-limit-tokens <n>  Abort the scan when accumulated tokens exceed n.
@@ -117,6 +124,7 @@ Environment variables:
   AGHAST_LOG_LEVEL            Console log level (CLI --log-level takes precedence)
   AGHAST_LOG_FILE             Log file path (CLI --log-file takes precedence)
   AGHAST_LOG_TYPE             Log file handler type (CLI --log-type takes precedence)
+  AGHAST_DIFF_REF             Git ref to diff against (CLI --diff-ref takes precedence)
 
 Examples:
   aghast scan ./my-repo --config-dir ./my-checks
@@ -139,6 +147,8 @@ function parseArgs(args: string[]): {
   model?: string;
   agentProvider?: string;
   genericPrompt?: string;
+  diffRef?: string;
+  diffFile?: string;
   budgetLimitCost?: number;
   budgetLimitTokens?: number;
 } {
@@ -164,6 +174,8 @@ function parseArgs(args: string[]): {
   let model: string | undefined;
   let agentProvider: string | undefined;
   let genericPrompt: string | undefined;
+  let diffRef: string | undefined;
+  let diffFile: string | undefined;
   let budgetLimitCost: number | undefined;
   let budgetLimitTokens: number | undefined;
 
@@ -263,6 +275,25 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
+      case '--diff-ref': {
+        diffRef = args[i + 1];
+        if (!diffRef) {
+          console.error(formatError(ERROR_CODES.E1001, '--diff-ref requires a git ref argument'));
+          process.exit(1);
+        }
+        i++;
+        break;
+      }
+      case '--diff-file': {
+        diffFile = args[i + 1];
+        if (!diffFile) {
+          console.error(formatError(ERROR_CODES.E1001, '--diff-file requires a path argument'));
+          process.exit(1);
+        }
+        diffFile = resolve(diffFile);
+        i++;
+        break;
+      }
       case '--budget-limit-cost': {
         const raw = args[i + 1];
         if (!raw) {
@@ -301,6 +332,7 @@ function parseArgs(args: string[]): {
     repositoryPath, configDir, outputPath, outputFormat,
     failOnCheckFailure, debug, logLevel, logFile, logType,
     runtimeConfigPath, model, agentProvider, genericPrompt,
+    diffRef, diffFile,
     budgetLimitCost, budgetLimitTokens,
   };
 }
@@ -529,6 +561,31 @@ export async function runScan(args: string[]): Promise<void> {
   const needsSemgrep = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'semgrep');
   const needsOpenant = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'openant');
 
+  // ─── Resolve diff source ───
+  // Precedence: CLI --diff-ref/--diff-file > AGHAST_DIFF_REF > runtime config diffRef.
+  // (Check-level diffRef is applied per-check inside the scan runner.)
+  const resolvedDiffRef = parsed.diffRef ?? (process.env.AGHAST_DIFF_REF || undefined) ?? runtimeConfig.diffRef;
+  const resolvedDiffFile = parsed.diffFile;
+
+  // OpenAnt is needed for diff filtering. Required whenever a diff source is
+  // available and at least one check has a discovery that supports the filter
+  // and hasn't opted out.
+  const hasRuntimeDiffSource = resolvedDiffRef !== undefined || resolvedDiffFile !== undefined;
+  const hasAnyCheckLevelDiffRef = checksWithDetails.some(c => c.check.checkTarget?.diffRef !== undefined);
+  const diffSourceAvailable = hasRuntimeDiffSource || hasAnyCheckLevelDiffRef;
+  // Drive supportedDiscovery off the registry rather than a hardcoded list —
+  // new discoveries pick up their own behaviour via supportsDiffFilter without
+  // this gate having to be kept in sync.
+  const registeredDiscoveries = new Set(getRegisteredDiscoveries());
+  const needsDiffFilter = diffSourceAvailable && checksWithDetails.some(c => {
+    const ct = c.check.checkTarget;
+    if (!ct?.discovery || !registeredDiscoveries.has(ct.discovery)) return false;
+    const supportedDiscovery = getDiscovery(ct.discovery).supportsDiffFilter;
+    const optedIn = ct.diffFilter !== false;
+    const hasSource = hasRuntimeDiffSource || ct.diffRef !== undefined;
+    return supportedDiscovery && optedIn && hasSource;
+  });
+
   // ─── Conditional agent provider setup ───
   const agentProviderName = parsed.agentProvider ?? runtimeConfig.agentProvider?.name ?? DEFAULT_PROVIDER_NAME;
 
@@ -562,7 +619,7 @@ export async function runScan(args: string[]): Promise<void> {
     logProgress(TAG, `Using model: ${modelName}`);
   }
 
-  // ─── Conditional Semgrep verification ───
+  // ─── Conditional Semgrep verification (needed for semgrep discovery) ───
   if (needsSemgrep && !process.env.AGHAST_MOCK_SEMGREP) {
     try {
       await verifySemgrepInstalled();
@@ -573,12 +630,31 @@ export async function runScan(args: string[]): Promise<void> {
   }
 
   // ─── Conditional OpenAnt verification ───
+  // `openant` discovery is a hard requirement: without OpenAnt there are no
+  // targets. Diff filtering on other discoveries is a soft requirement: if
+  // OpenAnt is missing we fall back to a depth-0 filter (file+line overlap
+  // only, no call-graph flow) and log a clear warning so the mode is visible.
+  let openantAvailable = true;
   if (needsOpenant && !process.env.AGHAST_OPENANT_DATASET) {
     try {
       await verifyOpenAntInstalled();
     } catch (err) {
       console.error(formatError(ERROR_CODES.E6001, err instanceof Error ? err.message : String(err)));
       process.exit(1);
+    }
+  } else if (needsDiffFilter && !process.env.AGHAST_OPENANT_DATASET) {
+    try {
+      await verifyOpenAntInstalled();
+    } catch {
+      openantAvailable = false;
+      logProgress(
+        TAG,
+        'OpenAnt is not installed — diff filter will run in depth-0 mode ' +
+          '(findings kept only if their file and line range appear in the diff; ' +
+          'direct callers/callees of changed code are NOT included). ' +
+          'Install OpenAnt (https://github.com/knostic/OpenAnt/) or set ' +
+          'AGHAST_OPENANT_DATASET to a prebuilt dataset for depth-1 filtering with call-graph flow.',
+      );
     }
   }
 
@@ -625,6 +701,9 @@ export async function runScan(args: string[]): Promise<void> {
       agentProviderName: needsAI ? (useMock ? 'mock' : agentProviderName) : undefined,
       configDir,
       genericPrompt,
+      diffRef: resolvedDiffRef,
+      diffFile: resolvedDiffFile,
+      openantAvailable,
       pricing,
       budgetLimits,
       scanHistory: scanHistoryForBudget,

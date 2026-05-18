@@ -96,6 +96,26 @@ export interface CheckTargetDefinition {
   /** Analysis mode: determines the AI's approach to each target. */
   analysisMode?: 'custom' | 'false-positive-validation' | 'general-vuln-discovery';
   openant?: OpenAntFilterConfig;
+  /**
+   * Opt-out for post-discovery diff filtering. Set to `false` to skip the
+   * filter for this check even when a diff source is available at scan time.
+   * When unset (or `true`), filtering is applied automatically whenever a
+   * diff source is present and the discovery supports diff filtering.
+   */
+  diffFilter?: boolean;
+  /**
+   * Git ref to diff against for this check (e.g. 'main', 'HEAD~1').
+   *
+   * Overridden by any runtime diff source. Precedence, highest to lowest:
+   *   1. CLI `--diff-file <path>` (CLI only; no AGHAST_DIFF_FILE env var
+   *      equivalent) — when present, bypasses all ref sources including
+   *      this field; the file is used directly.
+   *   2. CLI `--diff-ref <ref>`
+   *   3. `AGHAST_DIFF_REF` env var
+   *   4. Runtime config `diffRef`
+   *   5. This field (check-level fallback).
+   */
+  diffRef?: string;
 }
 
 // --- A.2b Check Target (discovered location) ---
@@ -247,6 +267,11 @@ export interface RuntimeConfig {
   };
   genericPrompt?: string;
   failOnCheckFailure?: boolean;
+  /**
+   * Git ref to diff against. Auto-activates diff filtering on every check
+   * whose discovery supports it, unless the check opts out via diffFilter: false.
+   */
+  diffRef?: string;
   budget?: RuntimeBudgetConfig;
   pricing?: RuntimePricingConfig;
 }

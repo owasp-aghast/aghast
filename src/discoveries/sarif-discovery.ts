@@ -41,6 +41,7 @@ export const sarifDiscovery: TargetDiscovery = {
   name: 'sarif',
   defaultGenericPrompt: DEFAULT_GENERIC_PROMPT,
   needsInstructions: true,
+  supportsDiffFilter: true,
 
   async discover(
     check: SecurityCheck,

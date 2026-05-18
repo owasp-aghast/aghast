@@ -55,7 +55,7 @@ The [aghast-bounce-checks-public](https://github.com/BounceSecurity/aghast-bounc
 git clone https://github.com/BounceSecurity/aghast-bounce-checks-public.git
 ```
 
-The repo includes five example checks demonstrating the three check types (`repository`, `targeted`, `static`) with different discovery methods and analysis modes, with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
+The repo includes six example checks demonstrating the three check types (`repository`, `targeted`, `static`) with different discovery methods and analysis modes, with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
 
 | # | Example | Check type | Discovery | Analysis mode | Requires |
 |---|---------|------------|-----------|---------------|----------|
@@ -64,6 +64,7 @@ The repo includes five example checks demonstrating the three check types (`repo
 | 3 | [Missing API Token Decorator](#example-3-missing-api-token-decorator-static-check-semgrep-discovery) | static | Semgrep | — | Semgrep |
 | 4 | [SAST Finding Verification](#example-4-sast-finding-verification-targeted-check-sarif-input-false-positive-validation) | targeted | SARIF input | false-positive validation | API key |
 | 5 | [Various Security Vulnerabilities](#example-5-various-security-vulnerabilities-targeted-check-openant-discovery-general-vulnerability-analysis) | targeted | OpenAnt | general vulnerability discovery | API key, OpenAnt |
+| 6 | [Diff-Scoped Validation Scanning](#example-6-diff-scoped-validation-scanning-targeted-check-semgrep-discovery-with-diff-filtering) | targeted | Semgrep | custom | API key, Semgrep |
 
 > **Using OpenCode?** All examples that require an API key also work with the OpenCode provider. Add `--agent-provider opencode --model opencode/minimax-m2.5-free` to any `aghast scan` command below, or choose the model you want. See [Scanning → Using OpenCode](scanning.md#using-opencode) for setup.
 
@@ -356,6 +357,71 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-10-various-vulns \
 FAIL with ~8 issues: race condition in order creation, mass assignment allowing role escalation, insecure randomness in password reset tokens, SQL injection in custom report export, SSRF in custom export endpoint, SSRF via unvalidated webhook registration and test delivery, and broken object-level authorization in order retrieval.
 
 > **Note**: Because the AI independently analyzes each code unit, results may vary slightly between runs. The sonnet model provides the most consistent results.
+
+---
+
+### Example 6: Diff-Scoped Validation Scanning (targeted check, Semgrep discovery with diff filtering)
+
+#### Check type
+
+`targeted` with `semgrep` discovery. Functionally the same as Example 2 — Semgrep finds the code locations, the AI analyzes each one — but this example demonstrates **diff filtering**: when a diff source is supplied at scan time, findings are automatically narrowed to the code the change actually touches. No special check field is required; diff filtering is a cross-cutting behavior that activates whenever a diff source is present.
+
+#### What it does
+
+Finds Python endpoints that call `send_ai_query()` and checks whether each one performs all four required validations before dispatching the query: role check (JWT manager role), query length check (< 1000 chars), business hours check (9–17 Mon–Fri), and malicious prompt check. Without a diff source it analyzes every matching endpoint; with one, it analyzes only the endpoints in diff scope.
+
+#### Check definition (`aghast-importantvalidations-diff.json`):
+
+```json
+{
+  "id": "aghast-importantvalidations-diff",
+  "name": "Important Validations before performing an AI query (Diff-filtered)",
+  "instructionsFile": "aghast-importantvalidations-diff.md",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "semgrep",
+    "rules": "aghast-importantvalidations-diff.yaml",
+    "maxTargets": 9999
+  }
+}
+```
+
+Note there is no diff-related field in the definition. Diff filtering is driven entirely by whether a diff source is provided to the scan (`--diff-file`, `--diff-ref`, or `AGHAST_DIFF_REF`). A check can opt out with `checkTarget.diffFilter: false`. See the [Configuration Reference](configuration.md#diff-filtering) for the full behavior.
+
+#### Test codebase
+
+`test-codebases/test-13-importantvalidations-diff/` - a Python Flask app with nine endpoints that call the AI backend across three route modules, each with differing validation coverage. The folder also ships `example.diff`, a sample unified diff that modifies two of the endpoints (`/api/v1/execute`, `/api/v1/dispatch`) and a shared `check_rate_limit` helper.
+
+#### Run it without a diff source (requires API key + Semgrep):
+
+```bash
+aghast scan ./aghast-bounce-checks-public/test-codebases/test-13-importantvalidations-diff \
+  --config-dir ./aghast-bounce-checks-public \
+  --output-format sarif
+```
+
+All nine endpoints are analyzed — this is the full-repo baseline.
+
+#### Run it with a diff source (diff-scoped):
+
+```bash
+aghast scan ./aghast-bounce-checks-public/test-codebases/test-13-importantvalidations-diff \
+  --config-dir ./aghast-bounce-checks-public \
+  --diff-file ./aghast-bounce-checks-public/test-codebases/test-13-importantvalidations-diff/example.diff \
+  --output-format sarif
+```
+
+#### Expected result
+
+Without a diff source: nine endpoints analyzed.
+
+With `--diff-file` and OpenAnt available: the nine candidates are narrowed to **three** — `example.diff` touches `/api/v1/execute` and `/api/v1/dispatch` directly, and OpenAnt's call graph adds `/api/v1/invoke` because it calls the modified `check_rate_limit` helper. FAIL with ~2 issues: `/api/v1/execute` performs none of the four validations and `/api/v1/invoke` is missing the query-length and business-hours checks; `/api/v1/dispatch` performs all four and passes.
+
+If OpenAnt is not installed, the diff filter falls back to file/line overlap only (depth-0, no call-graph flow, logged with a warning): **two** endpoints analyzed (`/api/v1/execute`, `/api/v1/dispatch`), FAIL with ~1 issue. Installing OpenAnt (or setting `AGHAST_OPENANT_DATASET`) enables the richer depth-1 filtering. See [How It Works](how-it-works.md) for the depth-0 vs depth-1 distinction.
+
+> **Note**: Because the AI analyzes each endpoint independently, the exact issue wording may vary slightly between runs.
 
 ---
 

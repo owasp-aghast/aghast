@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-openant-diff-filter-test",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

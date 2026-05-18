@@ -24,9 +24,19 @@ function getOpenAntBinary(): string {
  * Resolves if found, rejects with a user-friendly error if not.
  * Skips the check when AGHAST_OPENANT_DATASET is set (the dataset is
  * supplied directly, so there is no need to invoke OpenAnt).
+ *
+ * Internal testing affordance: AGHAST_TESTING_OPENANT_UNAVAILABLE=true
+ * forces this check to fail, letting tests exercise the depth-0 fallback
+ * path deterministically on machines where OpenAnt happens to be installed.
+ * Not part of the public API.
  */
 export async function verifyOpenAntInstalled(): Promise<void> {
   if (process.env.AGHAST_OPENANT_DATASET) return;
+  if (process.env.AGHAST_TESTING_OPENANT_UNAVAILABLE === 'true') {
+    throw new Error(
+      formatError(ERROR_CODES.E6001, 'OpenAnt is unavailable (forced by AGHAST_TESTING_OPENANT_UNAVAILABLE).'),
+    );
+  }
   const binary = getOpenAntBinary();
   return new Promise((resolve, reject) => {
     execFile(binary, ['--help'], (error) => {
@@ -74,7 +84,7 @@ export async function runOpenAnt(
 
   const tmpDir = await mkdtemp(join(tmpdir(), 'aghast-openant-'));
   const binary = getOpenAntBinary();
-  const args = ['parse', repositoryPath, '--output', tmpDir, '--language', 'auto', '--fresh', '--quiet'];
+  const args = ['parse', repositoryPath, '--output', tmpDir, '--language', 'auto', '--quiet'];
 
   logDebug(TAG, `Command: ${binary} ${args.join(' ')}`);
 

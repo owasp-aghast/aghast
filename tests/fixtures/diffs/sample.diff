@@ -1,0 +1,67 @@
+diff --git a/src/auth.js b/src/auth.js
+index abc1234..def5678 100644
+--- a/src/auth.js
++++ b/src/auth.js
+@@ -10,6 +10,12 @@ function authenticate(req, res) {
+   const token = req.headers.authorization;
+   if (!token) {
+     return res.status(401).json({ error: 'No token provided' });
++  }
++
++  // New validation logic
++  const decoded = jwt.verify(token, SECRET);
++  if (!decoded.permissions.includes('admin')) {
++    return res.status(403).json({ error: 'Forbidden' });
+   }
+   return next();
+ }
+@@ -25,3 +31,8 @@ function logout(req, res) {
+   req.session.destroy();
+   return res.status(200).json({ message: 'Logged out' });
+ }
++
++function resetPassword(email) {
++  const user = db.findUser(email);
++  return sendResetEmail(user);
++}
+diff --git a/src/orders.js b/src/orders.js
+index 111aaa..222bbb 100644
+--- a/src/orders.js
++++ b/src/orders.js
+@@ -5,7 +5,7 @@ function getOrder(req, res) {
+   const orderId = req.params.id;
+-  const order = db.query(`SELECT * FROM orders WHERE id = ${orderId}`);
++  const order = db.query('SELECT * FROM orders WHERE id = ?', [orderId]);
+   return res.json(order);
+ }
+diff --git a/config/settings.yaml b/config/settings.yaml
+new file mode 100644
+--- /dev/null
++++ b/config/settings.yaml
+@@ -0,0 +1,5 @@
++database:
++  host: localhost
++  port: 5432
++  name: myapp
++  pool: 10
+diff --git a/old-script.sh b/old-script.sh
+deleted file mode 100644
+--- a/old-script.sh
++++ /dev/null
+@@ -1,10 +0,0 @@
+-#!/bin/bash
+-echo "This script is no longer needed"
+-rm -rf /tmp/cache
+diff --git a/data/image.png b/data/image.png
+Binary files a/data/image.png and b/data/image.png differ
+diff --git a/src/utils.js b/src/renamed-utils.js
+similarity index 95%
+rename from src/utils.js
+rename to src/renamed-utils.js
+--- a/src/utils.js
++++ b/src/renamed-utils.js
+@@ -1,4 +1,4 @@
+-function oldHelper() {
++function newHelper() {
+   return 42;
+ }

@@ -1,0 +1,12 @@
+{
+  "id": "aghast-sarif-diff-filter-test",
+  "name": "External SARIF with Diff Filter Test",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "sarif",
+    "sarifFile": "./diff-filter-findings.sarif",
+    "analysisMode": "false-positive-validation"
+  }
+}
