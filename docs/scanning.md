@@ -29,6 +29,8 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--agent-provider <name>` | Agent provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
 | `--runtime-config <path>` | Path to runtime config file. Useful for setting persistent defaults instead of repeating CLI flags |
+| `--diff-ref <ref>` | Git ref to diff against (e.g. `HEAD~1`, `main`, a commit SHA). Enables diff filtering on supporting discoveries |
+| `--diff-file <path>` | Path to pre-generated unified diff file (alternative to `--diff-ref`) |
 | `--budget-limit-cost <usd>` | Abort the scan when accumulated cost exceeds this USD value (warns at 80%) |
 | `--budget-limit-tokens <n>` | Abort the scan when accumulated tokens exceed this count (warns at 80%) |
 
@@ -48,6 +50,7 @@ Run `aghast scan --help` for the full list of options.
 | `AGHAST_LOG_TYPE` | Log file handler type (CLI `--log-type` takes precedence) |
 | `AGHAST_MOCK_SEMGREP` | Path to a SARIF file to use instead of running Semgrep (for testing `semgrep` discovery without Semgrep installed) |
 | `AGHAST_OPENANT_DATASET` | Path to a pre-generated OpenAnt dataset JSON file. When set, aghast uses this dataset directly instead of invoking `openant parse`. Useful for caching the dataset across multiple scans, splitting OpenAnt and aghast into separate CI jobs, running aghast where Python 3.11+ isn't available, or stubbing OpenAnt output in tests |
+| `AGHAST_DIFF_REF` | Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence) |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
 
 ## Agent Providers
@@ -99,11 +102,13 @@ aghast supports three check types with pluggable discovery methods:
 
 Discovery methods for `targeted` and `static` checks:
 
-| Discovery | Requires | Description |
-|-----------|----------|-------------|
-| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations |
-| `sarif` | SARIF file in check definition | Reads findings from an external SARIF file |
-| `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context |
+| Discovery | Requires | Description | Supports `diffFilter` |
+|-----------|----------|-------------|-----------------------|
+| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations | Yes |
+| `sarif` | SARIF file in check definition | Reads findings from an external SARIF file | Yes |
+| `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
+
+Diff filtering narrows findings to code touched by a git diff (plus call-graph flow). It activates automatically on all supporting discoveries whenever you provide a diff source (`--diff-ref`, `--diff-file`, `AGHAST_DIFF_REF`, or a check-level `diffRef`). OpenAnt (used for the call graph) is optional: if it isn't installed and no `AGHAST_OPENANT_DATASET` is provided, the filter falls back to **depth-0 mode** — file and line overlap only, no call-graph flow. A warning is logged when the fallback triggers. Set `checkTarget.diffFilter: false` on a specific check to exempt it. See [How It Works](how-it-works.md#diff-filtering-narrowing-a-discovery-to-changed-code) for details.
 
 Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
 
@@ -116,6 +121,23 @@ Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
 Built-in modes (`false-positive-validation`, `general-vuln-discovery`) provide their own prompt template and don't require an instructions file. See [How It Works](how-it-works.md#three-check-types) for details.
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
+
+## CI usage — diff-scoped scans on PRs
+
+For PR/MR pipelines you typically want to scan only the code touched by the change. Set `AGHAST_DIFF_REF` (or pass `--diff-ref`) to the base branch of the PR/MR at scan time — diff filtering activates automatically on every check whose discovery supports it. The check configs require no changes. Any individual check that should stay full-repo even during PR scans can set `checkTarget.diffFilter: false` in its definition.
+
+**Important:** the default CI checkout is usually shallow (depth 1), which stops `git diff` from seeing the base. Disable shallow cloning or fetch the base branch explicitly before running the scan. Settings: GitHub Actions `fetch-depth: 0` on the checkout action; GitLab CI `GIT_DEPTH: "0"` as a job variable (plus an explicit `git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"` since GitLab's shallow clone doesn't pull the target branch even at full depth).
+
+### Diff-ref value per platform
+
+| Platform | `AGHAST_DIFF_REF` value |
+|---|---|
+| GitHub Actions (`pull_request`) | `origin/${{ github.base_ref }}` |
+| GitLab CI (merge request pipeline) | `origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME` |
+
+### When to use `--diff-file` instead
+
+Use `--diff-file <path>` when your pipeline already produces a unified diff on disk (e.g. `gh pr diff --patch > pr.diff`) and you'd rather pass that than have aghast re-run `git diff` internally. For most CI workflows `AGHAST_DIFF_REF` is simpler and needs no intermediate step.
 
 ## Cost dashboards (`aghast stats`)
 

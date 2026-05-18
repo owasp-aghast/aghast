@@ -1,0 +1,11 @@
+{
+  "id": "aghast-openant-diff-filter-test",
+  "name": "OpenAnt with Diff Filter Test",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "openant",
+    "analysisMode": "general-vuln-discovery"
+  }
+}

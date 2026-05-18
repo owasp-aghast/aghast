@@ -19,6 +19,8 @@ import { DEFAULT_PROVIDER_NAME } from './provider-registry.js';
 import { semgrepDiscovery } from './discoveries/semgrep-discovery.js';
 import { openantDiscovery } from './discoveries/openant-discovery.js';
 import { sarifDiscovery } from './discoveries/sarif-discovery.js';
+import { applyDiffFilter } from './diff-filter.js';
+import { runOpenAnt } from './openant-runner.js';
 import type { DiscoveredTarget } from './discovery.js';
 import {
   DEFAULT_MODEL,
@@ -49,6 +51,75 @@ const DEFAULT_TARGET_TIMEOUT_MS = 5 * 60 * 1000;
 registerDiscovery(semgrepDiscovery);
 registerDiscovery(openantDiscovery);
 registerDiscovery(sarifDiscovery);
+
+/**
+ * Decide whether to apply the diff filter to a check's discovered targets.
+ *
+ * Rule: filter iff the discovery supports diff filtering, the check hasn't
+ * opted out via `diffFilter: false`, and a diff source is available — either
+ * at runtime (CLI/env) or baked into the check's own `diffRef`.
+ *
+ * Exported for unit testing.
+ */
+export function shouldApplyDiffFilter(
+  check: SecurityCheck,
+  discovery: { supportsDiffFilter: boolean },
+  runtimeDiffRef: string | undefined,
+  runtimeDiffFile: string | undefined,
+): boolean {
+  if (!discovery.supportsDiffFilter) return false;
+  if (check.checkTarget?.diffFilter === false) return false;
+  const sourceAvailable = Boolean(
+    runtimeDiffRef || runtimeDiffFile || check.checkTarget?.diffRef,
+  );
+  return sourceAvailable;
+}
+
+/**
+ * Plan the OpenAnt invocation and diff-filter mode for a single check.
+ *
+ * Returns the full decision tree the check execution needs:
+ * - `willApplyDiffFilter`: run the filter post-discovery?
+ * - `useDepthZeroFilter`: if so, skip OpenAnt and use overlap-only fallback?
+ * - `sharedOpenant`: a preloaded dataset + cleanup handle when we've run
+ *   OpenAnt upfront (to share across discovery and filter).
+ *
+ * Also emits the "why OpenAnt is running" log line with wording that
+ * reflects the actual caller set (discovery-only, filter-only, or both),
+ * so operators debugging output aren't misled.
+ */
+async function prepareCheckExecution(
+  check: SecurityCheck,
+  discovery: { name: string; supportsDiffFilter: boolean },
+  repositoryPath: string,
+  diffRef: string | undefined,
+  diffFile: string | undefined,
+  openantAvailable: boolean,
+): Promise<{
+  willApplyDiffFilter: boolean;
+  useDepthZeroFilter: boolean;
+  sharedOpenant: { datasetPath: string; cleanup: () => Promise<void> } | undefined;
+}> {
+  const willApplyDiffFilter = shouldApplyDiffFilter(check, discovery, diffRef, diffFile);
+  const useDepthZeroFilter = willApplyDiffFilter && !openantAvailable && discovery.name !== 'openant';
+  const discoveryUsesOpenant = discovery.name === 'openant';
+  const filterUsesOpenant = willApplyDiffFilter && !useDepthZeroFilter;
+  const needsOpenantDataset = discoveryUsesOpenant || filterUsesOpenant;
+
+  let sharedOpenant: { datasetPath: string; cleanup: () => Promise<void> } | undefined;
+  if (needsOpenantDataset) {
+    if (discoveryUsesOpenant && filterUsesOpenant) {
+      logProgress(TAG, 'Running OpenAnt once (shared between discovery and diff filter)');
+    } else if (discoveryUsesOpenant) {
+      logProgress(TAG, 'Running OpenAnt for openant discovery');
+    } else {
+      logProgress(TAG, 'Running OpenAnt for diff-filter call-graph computation');
+    }
+    sharedOpenant = await runOpenAnt(repositoryPath);
+  }
+
+  return { willApplyDiffFilter, useDepthZeroFilter, sharedOpenant };
+}
 
 /**
  * Sum multiple TokenUsage values into one aggregate.
@@ -159,6 +230,24 @@ export interface MultiScanOptions {
   repositoryInfo?: RepositoryInfo;
   configDir?: string;
   genericPrompt?: string;
+  /**
+   * Git ref to diff against. Auto-activates diff filtering on every check
+   * whose discovery supports it, unless the check opts out via diffFilter: false.
+   */
+  diffRef?: string;
+  /**
+   * Path to a pre-generated unified diff file. Auto-activates diff filtering
+   * on every check whose discovery supports it, unless the check opts out
+   * via diffFilter: false.
+   */
+  diffFile?: string;
+  /**
+   * Whether OpenAnt is available for diff filtering (binary installed or a
+   * preloaded dataset provided). When false, the diff filter runs in depth-0
+   * mode (file+line overlap only). Defaults to true; set by the CLI entry
+   * point after checking the environment.
+   */
+  openantAvailable?: boolean;
   /** Pricing config for cost calculations. */
   pricing?: PricingConfig;
   /** Optional budget limits enforced before each AI call. */
@@ -440,6 +529,9 @@ async function executeSingleCheck(
   concurrency?: number,
   configDir?: string,
   genericPrompt?: string,
+  diffRef?: string,
+  diffFile?: string,
+  openantAvailable: boolean = true,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
 
@@ -459,12 +551,15 @@ async function executeSingleCheck(
       concurrency,
       configDir,
       genericPrompt,
+      diffRef,
+      diffFile,
+      openantAvailable,
     );
   }
 
   // Route to static execution (discovery + direct mapping, no AI)
   if (check.checkTarget?.type === CHECK_TYPE.STATIC) {
-    return executeStaticCheck(check, checkName, repositoryPath, checkMetadata);
+    return executeStaticCheck(check, checkName, repositoryPath, checkMetadata, diffRef, diffFile, openantAvailable);
   }
 
   // Repository check (no discovery, AI analyzes whole repo)
@@ -579,6 +674,9 @@ async function executeTargetedCheck(
   optionsConcurrency?: number,
   configDir?: string,
   genericPromptOverride?: string,
+  diffRef?: string,
+  diffFile?: string,
+  openantAvailable: boolean = true,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
   const checkTarget = check.checkTarget!;
@@ -593,17 +691,41 @@ async function executeTargetedCheck(
   logProgress(TAG, `Running targeted check: ${checkName} (discovery: ${discoveryName})`);
   const checkTimer = createTimer();
 
+  const { willApplyDiffFilter, useDepthZeroFilter, sharedOpenant } = await prepareCheckExecution(
+    check,
+    discovery,
+    repositoryPath,
+    diffRef,
+    diffFile,
+    openantAvailable,
+  );
+
   try {
     // 1. Discover targets
-    let targets = await discovery.discover(check, repositoryPath, { repositoryPath });
+    let targets = await discovery.discover(check, repositoryPath, {
+      repositoryPath,
+      openantDatasetPath: sharedOpenant?.datasetPath,
+    });
 
-    // 2. Apply maxTargets limit
+    // 2. Apply diff filter automatically when a diff source is available, the
+    //    discovery supports it, and the check hasn't opted out via diffFilter: false.
+    if (willApplyDiffFilter) {
+      targets = await applyDiffFilter(check, targets, repositoryPath, {
+        diffRef,
+        diffFile,
+        depthZero: useDepthZeroFilter,
+        openant: checkTarget.openant,
+        openantDatasetPath: sharedOpenant?.datasetPath,
+      });
+    }
+
+    // 3. Apply maxTargets limit
     if (checkTarget.maxTargets !== undefined && targets.length > checkTarget.maxTargets) {
       targets = targets.slice(0, checkTarget.maxTargets);
       logProgress(TAG, `Limited to ${targets.length} targets (maxTargets: ${checkTarget.maxTargets})`);
     }
 
-    // 3. If no targets, return PASS
+    // 4. If no targets, return PASS
     if (targets.length === 0) {
       logProgress(TAG, 'Result: PASS (no targets found)');
       return {
@@ -619,7 +741,7 @@ async function executeTargetedCheck(
       };
     }
 
-    // 4. Resolve effective concurrency: per-check > options > default
+    // 5. Resolve effective concurrency: per-check > options > default
     const effectiveConcurrency =
       checkTarget.concurrency ?? optionsConcurrency ?? DEFAULT_CONCURRENCY;
 
@@ -798,6 +920,11 @@ async function executeTargetedCheck(
       },
       issues: [],
     };
+  } finally {
+    if (sharedOpenant) {
+      await sharedOpenant.cleanup();
+      logDebug(TAG, 'Cleaned up shared OpenAnt output');
+    }
   }
 }
 
@@ -809,6 +936,9 @@ async function executeStaticCheck(
   checkName: string,
   repositoryPath: string,
   checkMetadata?: { severity?: string; confidence?: string },
+  diffRef?: string,
+  diffFile?: string,
+  openantAvailable: boolean = true,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
   const checkTarget = check.checkTarget!;
@@ -823,11 +953,35 @@ async function executeStaticCheck(
   logProgress(TAG, `Running static check: ${checkName} (discovery: ${discoveryName})`);
   const checkTimer = createTimer();
 
+  const { willApplyDiffFilter, useDepthZeroFilter, sharedOpenant } = await prepareCheckExecution(
+    check,
+    discovery,
+    repositoryPath,
+    diffRef,
+    diffFile,
+    openantAvailable,
+  );
+
   try {
     // 1. Discover targets
-    let targets = await discovery.discover(check, repositoryPath, { repositoryPath });
+    let targets = await discovery.discover(check, repositoryPath, {
+      repositoryPath,
+      openantDatasetPath: sharedOpenant?.datasetPath,
+    });
 
-    // 2. Apply maxTargets limit
+    // 2. Apply diff filter automatically when a diff source is available, the
+    //    discovery supports it, and the check hasn't opted out via diffFilter: false.
+    if (willApplyDiffFilter) {
+      targets = await applyDiffFilter(check, targets, repositoryPath, {
+        diffRef,
+        diffFile,
+        depthZero: useDepthZeroFilter,
+        openant: checkTarget.openant,
+        openantDatasetPath: sharedOpenant?.datasetPath,
+      });
+    }
+
+    // 3. Apply maxTargets limit
     if (checkTarget.maxTargets !== undefined && targets.length > checkTarget.maxTargets) {
       targets = targets.slice(0, checkTarget.maxTargets);
     }
@@ -884,6 +1038,11 @@ async function executeStaticCheck(
       },
       issues: [],
     };
+  } finally {
+    if (sharedOpenant) {
+      await sharedOpenant.cleanup();
+      logDebug(TAG, 'Cleaned up shared OpenAnt output');
+    }
   }
 }
 
@@ -918,7 +1077,8 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
  * Used by the CLI to record scan history.
  */
 export async function runMultiScanWithCost(options: MultiScanOptions): Promise<MultiScanOutcome> {
-  const { repositoryPath, checks, agentProvider, modelName, agentProviderName, concurrency, configDir, genericPrompt } = options;
+  const { repositoryPath, checks, agentProvider, modelName, agentProviderName, concurrency, configDir, genericPrompt, diffRef, diffFile } = options;
+  const openantAvailable = options.openantAvailable ?? true;
   const scanTimer = createTimer();
   const scanId = generateScanId();
   const startTime = new Date();
@@ -975,6 +1135,9 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
         concurrency,
         configDir,
         genericPrompt,
+        diffRef,
+        diffFile,
+        openantAvailable,
       );
 
       allCheckSummaries.push(checkSummary);

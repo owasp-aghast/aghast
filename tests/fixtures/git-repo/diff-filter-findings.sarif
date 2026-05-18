@@ -1,0 +1,109 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "semanticVersion": "1.50.0",
+          "rules": []
+        }
+      },
+      "results": [
+        {
+          "ruleId": "jwt-no-verify",
+          "level": "warning",
+          "message": {
+            "text": "JWT token verified without proper secret validation"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/auth.js"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 14,
+                  "snippet": {
+                    "text": "const decoded = jwt.verify(token, SECRET);"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "weak-validation",
+          "level": "warning",
+          "message": {
+            "text": "Weak token validation in validate function"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/validate.js"
+                },
+                "region": {
+                  "startLine": 10,
+                  "endLine": 12,
+                  "snippet": {
+                    "text": "return token.split('.').length === 3;"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sql-injection",
+          "level": "error",
+          "message": {
+            "text": "SQL injection in getOrder"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/orders.js"
+                },
+                "region": {
+                  "startLine": 5,
+                  "endLine": 7,
+                  "snippet": {
+                    "text": "db.query(`SELECT * FROM orders WHERE id = ${orderId}`);"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "hardcoded-secret",
+          "level": "warning",
+          "message": {
+            "text": "Hardcoded secret in config"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "config/settings.yaml"
+                },
+                "region": {
+                  "startLine": 2,
+                  "endLine": 3,
+                  "snippet": {
+                    "text": "secret: my-secret-key"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

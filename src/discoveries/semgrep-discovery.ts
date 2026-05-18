@@ -41,6 +41,7 @@ export const semgrepDiscovery: TargetDiscovery = {
   name: 'semgrep',
   defaultGenericPrompt: DEFAULT_GENERIC_PROMPT,
   needsInstructions: true,
+  supportsDiffFilter: true,
 
   async discover(
     check: SecurityCheck,

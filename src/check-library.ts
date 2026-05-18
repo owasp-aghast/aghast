@@ -198,6 +198,13 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
         `Check definition "${defPath}": "checkTarget.sarifFile" is required when discovery is "sarif"`,
       );
     }
+    // Validate diff filter fields
+    if (ct.diffFilter !== undefined && typeof ct.diffFilter !== 'boolean') {
+      throw new Error(`Check definition "${defPath}": "checkTarget.diffFilter" must be a boolean`);
+    }
+    if (ct.diffRef !== undefined && typeof ct.diffRef !== 'string') {
+      throw new Error(`Check definition "${defPath}": "checkTarget.diffRef" must be a string`);
+    }
     // Validate openant filter config
     if (ct.openant !== undefined) {
       if (typeof ct.openant !== 'object' || ct.openant === null) {
@@ -412,11 +419,9 @@ export async function validateCheck(
   // Only validates when discoveries have been registered (skips in unit tests
   // where scan-runner.ts hasn't been imported).
   const discovery = check.checkTarget?.discovery;
-  if (discovery) {
-    const registered = getRegisteredDiscoveries();
-    if (registered.length > 0 && !registered.includes(discovery)) {
-      errors.push(`Unknown discovery type "${discovery}". Available: ${registered.join(', ')}`);
-    }
+  const registered = getRegisteredDiscoveries();
+  if (discovery && registered.length > 0 && !registered.includes(discovery)) {
+    errors.push(`Unknown discovery type "${discovery}". Available: ${registered.join(', ')}`);
   }
 
   // Built-in analysis modes provide their own prompt template — no instructionsFile needed

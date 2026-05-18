@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-semgrep-diff-filter-test",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

@@ -19,16 +19,24 @@ export const openantDiscovery: TargetDiscovery = {
   name: 'openant',
   defaultGenericPrompt: DEFAULT_GENERIC_PROMPT,
   needsInstructions: true,
+  supportsDiffFilter: true,
 
   async discover(
     check: SecurityCheck,
     repoPath: string,
-    _options?: DiscoveryOptions,
+    options?: DiscoveryOptions,
   ): Promise<DiscoveredTarget[]> {
     const checkTarget = check.checkTarget!;
 
-    // Run openant parse (or use mock)
-    const { datasetPath, cleanup } = await runOpenAnt(repoPath);
+    // Reuse the scan runner's dataset when provided, otherwise run OpenAnt ourselves.
+    let datasetPath: string;
+    let cleanup: (() => Promise<void>) | undefined;
+    if (options?.openantDatasetPath) {
+      logDebug(TAG, `Reusing preloaded OpenAnt dataset: ${options.openantDatasetPath}`);
+      datasetPath = options.openantDatasetPath;
+    } else {
+      ({ datasetPath, cleanup } = await runOpenAnt(repoPath));
+    }
 
     try {
       // Load and filter units
@@ -50,8 +58,10 @@ export const openantDiscovery: TargetDiscovery = {
         };
       });
     } finally {
-      await cleanup();
-      logDebug(TAG, 'Cleaned up temporary OpenAnt output');
+      if (cleanup) {
+        await cleanup();
+        logDebug(TAG, 'Cleaned up temporary OpenAnt output');
+      }
     }
   },
 };

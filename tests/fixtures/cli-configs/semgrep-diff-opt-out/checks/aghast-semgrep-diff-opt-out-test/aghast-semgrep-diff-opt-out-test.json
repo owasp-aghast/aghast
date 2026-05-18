@@ -1,0 +1,13 @@
+{
+  "id": "aghast-semgrep-diff-opt-out-test",
+  "name": "Semgrep with diffFilter: false opt-out",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "semgrep",
+    "rules": "unused-in-mock.yaml",
+    "analysisMode": "false-positive-validation",
+    "diffFilter": false
+  }
+}

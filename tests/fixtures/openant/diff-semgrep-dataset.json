@@ -1,0 +1,119 @@
+{
+  "name": "diff-semgrep-test",
+  "repository": "https://github.com/test/repo",
+  "units": [
+    {
+      "id": "src/auth.js:authenticate",
+      "unit_type": "function",
+      "code": {
+        "primary_code": "function authenticate(req, res) { ... }",
+        "primary_origin": {
+          "file_path": "src/auth.js",
+          "start_line": 1,
+          "end_line": 20,
+          "function_name": "authenticate",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["src/auth.js"],
+          "original_length": 300,
+          "enhanced_length": 300
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 0, "total_upstream": 0, "total_downstream": 1,
+          "direct_calls": 1, "direct_callers": 0
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": ["req", "res"],
+        "docstring": null,
+        "direct_calls": ["validate"],
+        "direct_callers": []
+      },
+      "reachable": true,
+      "is_entry_point": true,
+      "entry_point_reason": "route_handler"
+    },
+    {
+      "id": "src/validate.js:validate",
+      "unit_type": "function",
+      "code": {
+        "primary_code": "function validate(token) { ... }",
+        "primary_origin": {
+          "file_path": "src/validate.js",
+          "start_line": 1,
+          "end_line": 25,
+          "function_name": "validate",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["src/validate.js"],
+          "original_length": 200,
+          "enhanced_length": 200
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 1, "total_upstream": 1, "total_downstream": 0,
+          "direct_calls": 0, "direct_callers": 1
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": ["token"],
+        "docstring": null,
+        "direct_calls": [],
+        "direct_callers": ["authenticate"]
+      },
+      "reachable": true,
+      "is_entry_point": false,
+      "entry_point_reason": ""
+    },
+    {
+      "id": "src/orders.js:getOrder",
+      "unit_type": "function",
+      "code": {
+        "primary_code": "function getOrder(req, res) { ... }",
+        "primary_origin": {
+          "file_path": "src/orders.js",
+          "start_line": 1,
+          "end_line": 30,
+          "function_name": "getOrder",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["src/orders.js"],
+          "original_length": 250,
+          "enhanced_length": 250
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 0, "total_upstream": 0, "total_downstream": 0,
+          "direct_calls": 0, "direct_callers": 0
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": ["req", "res"],
+        "docstring": null,
+        "direct_calls": [],
+        "direct_callers": []
+      },
+      "reachable": true,
+      "is_entry_point": true,
+      "entry_point_reason": "route_handler"
+    }
+  ],
+  "statistics": {
+    "total_units": 3,
+    "by_type": { "function": 3 }
+  },
+  "metadata": {
+    "generator": "test",
+    "generated_at": "2026-01-15T10:00:00Z"
+  }
+}

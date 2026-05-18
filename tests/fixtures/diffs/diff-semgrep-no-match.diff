@@ -1,0 +1,9 @@
+diff --git a/src/unrelated.js b/src/unrelated.js
+index aaa1111..bbb2222 100644
+--- a/src/unrelated.js
++++ b/src/unrelated.js
+@@ -1,3 +1,4 @@
+ function unrelatedFunction() {
+   console.log('hello');
++  console.log('world');
+ }

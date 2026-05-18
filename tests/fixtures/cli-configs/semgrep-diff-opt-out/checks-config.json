@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-semgrep-diff-opt-out-test",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

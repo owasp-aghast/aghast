@@ -93,10 +93,13 @@ flowchart TD
     TypeCheck -->|targeted| TargetCheck["Run discovery<br/><i>semgrep · openant · sarif</i>"]
     TypeCheck -->|static| StaticCheck["Run discovery<br/><i>semgrep only</i>"]
 
-    TargetCheck --> ModeCheck{Analysis Mode?}
+    TargetCheck --> DiffFilterStep{Diff source<br/>available?}
+    DiffFilterStep -->|yes| DiffFilter["Apply diff filter<br/>(OpenAnt call graph)"]
+    DiffFilterStep -->|no| ModeCheck
+    DiffFilter --> ModeCheck{Analysis Mode?}
 
     ModeCheck -->|custom| Custom["AI analyzes with<br/>custom instructions"]
-    ModeCheck -->|false-positive-validation| FPV["AI validates findings<br/>as true/false positive<br/><i>(semgrep, sarif only)</i>"]
+    ModeCheck -->|false-positive-validation| FPV["AI validates findings<br/>as true/false positive<br/><i>(semgrep, sarif)</i>"]
     ModeCheck -->|general-vuln-discovery| GVD["AI performs general<br/>vulnerability discovery"]
 
     RepoCheck --> Parse
@@ -180,12 +183,38 @@ Discovery methods are deterministic: they use static analysis or pre-existing re
 - **OpenAnt**: runs [OpenAnt](https://github.com/knostic/OpenAnt/) to extract individual code units (functions, classes) with call graph context (who calls this function, what does it call).
 - **SARIF**: reads findings from an external SARIF file (e.g., output from another SAST scanner) and feeds each finding to the AI.
 
+#### Diff filtering: narrowing a discovery to changed code
+
+Discovery methods return all findings across the repo. In PR/CI pipelines you often only care about findings related to what a change actually touched. Provide a diff source at scan time and aghast automatically filters discovery output to the diff's scope — no per-check configuration needed.
+
+1. The discovery (Semgrep, SARIF, or any future SARIF-producing discovery) runs as usual and produces a list of candidate findings.
+2. OpenAnt is run to build a call graph of the repo's code units (functions, methods, classes).
+3. A code unit counts as "touched" if its line range overlaps a changed region in the diff, *or* if it is a direct caller or callee of a directly-touched unit (a single call-graph hop in each direction).
+4. Findings outside touched units are filtered out. For files OpenAnt can't parse (config files, templates), a finding is kept if the file itself appears in the diff.
+5. The surviving findings flow into AI analysis exactly as they would without the filter.
+
+**"Touched" is unit-granular, not line-granular.** If you change a single line inside `foo()` (spanning, say, lines 10-50), the entire `foo()` function is touched — so a Semgrep finding elsewhere in `foo()`, at line 30, is kept even though line 30 itself isn't in the diff. This is deliberate: a localised change can affect behaviour anywhere in the same function, and findings in that function are worth reviewing. Three classes of finding survive depth-1 filtering:
+
+1. **Directly-changed code** — findings at lines that appear in the diff.
+2. **Same-function findings** — findings anywhere in a function that had *any* change in it.
+3. **Caller/callee findings** — findings in functions one call-graph hop away from a changed function.
+
+**Why only one call-graph hop?** It might seem natural to follow the full call stack — "if I changed `validate()`, shouldn't I also check `authenticate()` and `login_flow()` and `handle_request()`?" In practice, transitive closure defeats the purpose of filtering: in a typical repo, chasing every caller of a caller pulls in most of the codebase within two or three hops, so "diff-filtered" becomes indistinguishable from a full scan. Call-graph depth is also a crude proxy for what you actually want (does the change introduce or expose a vulnerable dataflow?) — that's a taint-propagation question, not a call-depth one. Depth 1 captures the immediate blast radius where the AI is likeliest to find something actionable: direct callers ("did I break a contract?") and direct callees ("did I start using something in a new way?"). If you need broader coverage, run the scan without a diff source — the filter is skipped and every finding reaches the AI.
+
+**Automatic.** The filter runs whenever a diff source is available (CLI `--diff-ref`/`--diff-file`, `AGHAST_DIFF_REF`, runtime config, or a check-level `diffRef`) — no `diffFilter: true` flag needed. No diff source? No filter, no error — the scan runs full-repo. To exempt one check from filtering even when a source is provided, set `checkTarget.diffFilter: false` on it.
+
+**Depth-0 fallback when OpenAnt is unavailable.** OpenAnt is only strictly required for `openant` discovery (it provides the targets). For diff filtering on `semgrep` / `sarif` discoveries, OpenAnt is optional: if the binary isn't installed and no `AGHAST_OPENANT_DATASET` is supplied, the filter gracefully falls back to **depth-0 mode** — keep only findings whose file and line range overlap a diff hunk. This means depth-0 **loses both the same-function coverage and the caller/callee hop** (cases 2 and 3 above): changing one line in `foo()` only surfaces that line's own finding, not any other finding elsewhere in `foo()`. aghast logs a clear warning at scan start so the mode switch is visible. Install OpenAnt (or set `AGHAST_OPENANT_DATASET`) to get depth-1 filtering.
+
+Works with **any** discovery whose output has file/line locations — `semgrep`, `sarif`, and `openant` today, and extends naturally to new scanners added in the future. When both the discovery and the filter would otherwise run OpenAnt (e.g. an openant check with `--diff-ref`), the scan runner runs it once and shares the dataset — no double cost.
+
+If the check sets `checkTarget.openant` (a metadata filter over OpenAnt units), the same filter narrows the universe of units the diff-scope computation considers — keeping the discovery's target set and the filter's scope set consistent.
+
 #### Analysis modes: what the AI does
 
 The analysis mode determines what the AI does with each discovered target:
 
 - **Custom** (default): you write your own instructions in a markdown file, tailored to the specific question you want answered. This is the most flexible option.
-- **False-positive validation**: the AI evaluates each target as a potential false positive and filters out findings that are not actually vulnerable. Works with Semgrep and SARIF discovery.
+- **False-positive validation**: the AI evaluates each target as a potential false positive and filters out findings that are not actually vulnerable. Works with Semgrep and SARIF discovery (and with those paired with diff filtering).
 - **General vulnerability discovery**: the AI scans each target for a broad range of security vulnerabilities. Works with all discovery methods.
 
 Any discovery method can be paired with any compatible analysis mode. For example, you could use Semgrep discovery with `false-positive-validation` to validate Semgrep findings, or with `custom` instructions to perform deeper analysis on each match.

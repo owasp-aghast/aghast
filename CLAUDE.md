@@ -15,16 +15,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-Six core components orchestrated by the Security Scanner:
+Seven core components orchestrated by the Security Scanner:
 
 1. **Security Scanner** — Orchestrator that coordinates the scan workflow, executes checks, and aggregates results
 2. **Check Library** — Two-layer config: loads check registry from `checks-config.json` (Layer 1: id, repositories, enabled) and per-check definitions from `checks/<id>/<id>.json` (Layer 2: name, instructions, severity, checkTarget) within a config directory specified via `--config-dir`. Merges layers, filters by repository, loads markdown instructions from each check folder.
 3. **Agent Provider** — Abstraction layer over agent SDKs / harnesses that delegate to LLMs (reference impls: Claude Code, OpenCode)
 4. **Repository Analyzer** — Extracts Git metadata (remote URL, branch, commit) from target repos
-5. **Discovery Providers** — Pluggable target discovery system (`src/discovery.ts`): Semgrep, OpenAnt, and SARIF providers find code locations for targeted/static checks
-6. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
+5. **Discovery Providers** — Pluggable target discovery system (`src/discovery.ts`): Semgrep, OpenAnt, and SARIF providers find code locations for targeted/static checks. Providers declare whether they support the cross-cutting diff filter step via `supportsDiffFilter`.
+6. **Diff Filter** — Optional post-discovery transformation (`src/diff-filter.ts`) that narrows any SARIF-producing discovery's output to findings touching a git diff, using OpenAnt's call graph for flow-adjacency. Activated automatically when a diff source is provided; individual checks can opt out via `checkTarget.diffFilter: false`.
+7. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
 
-**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), run discovery (Semgrep, OpenAnt, or SARIF for targeted/static checks), AI analyzes (or map findings directly for static checks), results parsed → aggregate → JSON report → exit code.
+**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), run discovery (Semgrep, OpenAnt, or SARIF for targeted/static checks), optionally apply diff filter, AI analyzes (or map findings directly for static checks), results parsed → aggregate → JSON report → exit code.
 
 **Check types**: Three check types with pluggable discovery:
 - `repository` — AI analyzes the whole repo (no discovery needed)
@@ -32,6 +33,8 @@ Six core components orchestrated by the Security Scanner:
 - `static` — A discovery method finds issues mapped directly to results, no AI involvement. Discovery methods: `semgrep`
 
 Each targeted/static check specifies `checkTarget.discovery` (e.g., `semgrep`, `openant`, `sarif`) to select the discovery strategy. Targeted checks can also set `checkTarget.analysisMode` to control what the AI does with each target: `custom` (default, uses `instructionsFile`), `false-positive-validation`, or `general-vuln-discovery` (built-in prompt templates, no `instructionsFile` needed).
+
+**Diff filtering**: Activates automatically on all discoveries (`semgrep`, `sarif`, `openant`) whenever a diff source is provided at scan time (`--diff-ref`, `--diff-file`, `AGHAST_DIFF_REF`, runtime config `diffRef`, or a check-level `diffRef`). OpenAnt is used for the call graph (depth-1 mode); if it's unavailable and no `AGHAST_OPENANT_DATASET` is provided, the filter falls back to depth-0 mode (file+line overlap only, no call-graph flow) with a clear warning log. Required strictly for `openant` discovery itself. Individual checks can opt out with `checkTarget.diffFilter: false`. When both discovery and filter need OpenAnt (e.g. an openant check with a diff source), the scan runner runs it once and shares the dataset.
 
 ## Key Data Flow
 
@@ -75,9 +78,9 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 - `npm run build` — Compile TypeScript
 - `npm run lint` — Run ESLint on src/ and tests/
 - `npm run lint:fix` — Run ESLint with auto-fix on src/ and tests/
-- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--agent-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Precedence: CLI flags > env vars > runtime config > defaults.
+- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--agent-provider <name>] [--generic-prompt <file>] [--runtime-config <path>] [--diff-ref <ref>] [--diff-file <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Providing `--diff-ref`/`--diff-file`/`AGHAST_DIFF_REF` enables diff filtering on supporting discoveries automatically. Precedence: CLI flags > env vars > runtime config > defaults.
 - `npm run new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
-- `npm run build-config -- --config-dir <path> [--non-interactive] [--provider <name>] [--model <id>] [--output-format json|sarif] [--log-level <level>] [--clear <field>] ...` — Build or edit `runtime-config.json`. Interactive when no value flags are given; non-interactive when `--non-interactive` is passed (or when all needed values come from flags). Loads existing config so omitted fields stay untouched. Models come from `provider.listModels()`: the Claude Code provider tries `@anthropic-ai/sdk` `models.list()` first when `ANTHROPIC_API_KEY` is set (full canonical list with display names), then falls back to `claude-agent-sdk` `supportedModels()` (curated 3 aliases — works with `AGHAST_LOCAL_CLAUDE=true`).
+- `npm run build-config -- --config-dir <path> [--non-interactive] [--provider <name>] [--model <id>] [--output-format json|sarif] [--log-level <level>] [--diff-ref <ref>] [--clear <field>] ...` — Build or edit `runtime-config.json`. Interactive when no value flags are given; non-interactive when `--non-interactive` is passed (or when all needed values come from flags). Loads existing config so omitted fields stay untouched. Models come from `provider.listModels()`: the Claude Code provider tries `@anthropic-ai/sdk` `models.list()` first when `ANTHROPIC_API_KEY` is set (full canonical list with display names), then falls back to `claude-agent-sdk` `supportedModels()` (curated 3 aliases — works with `AGHAST_LOCAL_CLAUDE=true`).
 
 ## Check Definitions (External)
 
@@ -108,6 +111,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_MOCK_AI` — Enables mock agent provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
 - `AGHAST_MOCK_SEMGREP` — Path to SARIF file for mock Semgrep output
 - `AGHAST_OPENANT_DATASET` — Path to a pre-generated OpenAnt dataset JSON file (skips invoking `openant parse`)
+- `AGHAST_DIFF_REF` — Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence)
 - `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
 - `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
@@ -128,6 +132,9 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/discoveries/semgrep-discovery.ts` — Semgrep discovery provider (runs Semgrep rules, parses SARIF output into targets)
 - `src/discoveries/openant-discovery.ts` — OpenAnt discovery provider (runs OpenAnt to extract code units with call graph context)
 - `src/discoveries/sarif-discovery.ts` — SARIF discovery provider (reads external SARIF files for AI validation)
+- `src/diff-filter.ts` — Diff filter (`applyDiffFilter`); called post-discovery whenever a diff source is available and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets to diff scope using OpenAnt call graph (depth-1), or falls back to file+line overlap (depth-0) when OpenAnt is unavailable
+- `src/diff-parser.ts` — Unified diff parsing (`parseDiff`, `getDiff`, `loadDiffFromFile`)
+- `src/diff-unit-matcher.ts` — Unit-to-diff matching with call graph traversal (`findTouchedUnits`, `filterFindingsByScope`)
 - `src/claude-code-provider.ts` — Claude Code agent provider implementation using `@anthropic-ai/claude-agent-sdk`
 - `src/opencode-provider.ts` — OpenCode agent provider implementation using `@opencode-ai/sdk` (supports 75+ LLM providers)
 - `src/provider-utils.ts` — Shared provider utilities (OUTPUT_SCHEMA for structured output)
