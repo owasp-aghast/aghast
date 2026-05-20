@@ -288,6 +288,22 @@ export function getLogLevel(): LogLevel | 'silent' {
   return ensureConsoleHandler().level;
 }
 
+/**
+ * Return true if any registered handler will output debug (or lower) entries.
+ * Use this instead of getLogLevel() when a file handler may be active at a
+ * finer level than the console handler.
+ */
+export function isDebugEnabled(): boolean {
+  return handlers.some((h) => h.level !== 'silent' && LOG_LEVEL_PRIORITY[h.level as LogLevel] >= LOG_LEVEL_PRIORITY['debug']);
+}
+
+/**
+ * Return true if any registered handler will output trace entries.
+ */
+export function isTraceEnabled(): boolean {
+  return handlers.some((h) => h.level === 'trace');
+}
+
 // --- Timestamp ---
 
 export function formatTimestamp(): string {
@@ -329,6 +345,13 @@ export function logDebug(tag: string, message: string, data?: unknown): void {
  * Log debug information without truncation (for full prompts and responses).
  */
 export function logDebugFull(tag: string, message: string, data?: string): void {
+  log('trace', tag, message, data);
+}
+
+/**
+ * Log a trace-level message (finer-grained than debug; for raw internal data).
+ */
+export function logTrace(tag: string, message: string, data?: unknown): void {
   log('trace', tag, message, data);
 }
 
