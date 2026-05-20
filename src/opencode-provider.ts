@@ -2,11 +2,11 @@
  * OpenCode agent provider implementation.
  * Uses @opencode-ai/sdk v2 API to delegate to any LLM provider supported by OpenCode.
  *
- * Progress logging: at trace level, a 1-second poller fetches session messages to
- * log tool calls and text parts in real-time while session.prompt() blocks.
+ * Progress logging: at debug/trace level, subscribes to the SSE event stream to
+ * log tool calls and session errors in real-time while session.prompt() blocks.
  */
 
-import { exec } from 'node:child_process';
+import { exec, spawn, spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { rm as rmAsync } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -15,7 +15,7 @@ import type { AgentProvider, AgentResponse, ProviderConfig, CheckResponse, Provi
 import { FatalProviderError } from './types.js';
 import { parseAgentResponse } from './response-parser.js';
 import { OUTPUT_SCHEMA } from './provider-utils.js';
-import { logProgress, logDebug, logDebugFull, createTimer, getLogLevel } from './logging.js';
+import { logProgress, logDebug, logDebugFull, logTrace, logWarn, createTimer, isDebugEnabled, isTraceEnabled } from './logging.js';
 
 const execAsync = promisify(exec);
 
@@ -25,7 +25,6 @@ const DEFAULT_OPENCODE_MODEL = 'opencode/hy3-preview-free';
 // Tools the agent is permitted to use — everything else is denied.
 const ALLOWED_TOOL_PERMISSIONS = new Set(['read', 'glob', 'grep', 'list']);
 const HEARTBEAT_INTERVAL_MS = 15000;
-const TRACE_POLL_MS = 1000;
 const CLOSE_TIMEOUT_MS = 5000;
 
 /**
@@ -41,6 +40,109 @@ function parseModelString(model?: string): { providerID: string; modelID: string
     );
   }
   return { providerID: raw.slice(0, slashIdx), modelID: raw.slice(slashIdx + 1) };
+}
+
+// Regex for stderr lines worth forwarding — drops service=bus, tool.registry, snapshot,
+// config, file.watcher, lsp, plugin, etc. Keeps LLM calls (including 429 retries),
+// provider routing, permission decisions, and session loop steps.
+const USEFUL_SERVER_LOG = /service=(llm|permission|provider|session\.prompt|session\.processor)\b/;
+// Lines matching USEFUL_SERVER_LOG that also contain an error indicator are promoted to debug.
+const SERVER_LOG_ERROR = /\berror\b/i;
+
+/** Extract a compact summary from a raw opencode server error log line. */
+function summariseServerError(line: string): string {
+  const providerID = line.match(/providerID=(\S+)/)?.[1] ?? '';
+  const modelID = line.match(/modelID=(\S+)/)?.[1] ?? '';
+  const statusCode = line.match(/"statusCode":(\d+)/)?.[1];
+  const isRetryable = /"isRetryable":true/.test(line);
+  const errorName = line.match(/"name":"([^"]+)"/)?.[1] ?? 'LLM error';
+  const model = [providerID, modelID].filter(Boolean).join('/');
+  const status = statusCode ? `HTTP ${statusCode}` : errorName;
+  const suffix = isRetryable ? ' (retrying)' : '';
+  return `[opencode-server] ${status}${model ? ` — ${model}` : ''}${suffix}`;
+}
+
+// Inlined from @opencode-ai/sdk/dist/process.js — that path is not in the package exports map.
+// See docs/opencode-provider-internals.md.
+function stopProcess(proc: ReturnType<typeof spawn>): void {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  if (process.platform === 'win32' && proc.pid) {
+    const out = spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true });
+    if (!out.error && out.status === 0) return;
+  }
+  proc.kill();
+}
+
+/**
+ * Spawn `opencode serve` directly so we can forward filtered server logs.
+ * Returns the same `{ url, close() }` shape as the SDK's createOpencode().
+ * At debug/trace log level, useful stderr lines (LLM calls, permission decisions,
+ * provider routing) are forwarded to logDebug — surfacing 429 retries and auth errors
+ * that would otherwise be invisible while session.prompt() blocks.
+ */
+async function spawnOpencodeServer(): Promise<{ url: string; close(): void }> {
+  // Always pass --print-logs so opencode writes server logs to stderr instead of disk.
+  // We capture and forward those logs via logDebug, which routes to whichever handlers
+  // are active (file handler at debug level sees them even if console is at info).
+  // Shell is required on Windows for the .cmd wrapper (CVE-2024-27980 mitigation).
+  const cmd = 'opencode serve --hostname=127.0.0.1 --port=0 --print-logs';
+  const proc = spawn(cmd, { shell: true });
+
+  const forwardStderr = (chunk: Buffer): void => {
+    for (const line of chunk.toString().split('\n')) {
+      if (!line.trim()) continue;
+      if (USEFUL_SERVER_LOG.test(line)) {
+        // Log error lines (e.g. 429 retries) at info so they're visible without --debug.
+        if (SERVER_LOG_ERROR.test(line)) {
+          logProgress(TAG, summariseServerError(line));
+        } else {
+          logTrace(TAG, `[opencode-server] ${line.trim()}`);
+        }
+      }
+    }
+  };
+
+  let stdoutBuf = '';
+  const url = await new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      stopProcess(proc);
+      reject(new Error('Timeout: opencode server did not start within 30s'));
+    }, 30_000);
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      stdoutBuf += chunk.toString();
+      const lines = stdoutBuf.split('\n');
+      stdoutBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        const m = line.match(/opencode server listening on\s+(https?:\/\/[^\s]+)/);
+        if (m) {
+          clearTimeout(timeout);
+          resolve(m[1]);
+        }
+      }
+    });
+
+    proc.stderr?.on('data', forwardStderr);
+
+    proc.on('exit', (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`opencode server exited with code ${code} before becoming ready`));
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`opencode server spawn error: ${err.message}`));
+    });
+  });
+
+  // Continue forwarding stderr after server is ready.
+  proc.stderr?.off('data', forwardStderr);
+  proc.stderr?.on('data', forwardStderr);
+
+  return {
+    url,
+    close: () => stopProcess(proc),
+  };
 }
 
 /** Verify that the opencode binary is installed and runnable. */
@@ -123,15 +225,12 @@ export class OpenCodeProvider implements AgentProvider {
     // Verify opencode binary is installed
     await verifyOpenCodeInstalled();
 
-    const { createOpencode } = await import('@opencode-ai/sdk/v2');
+    const { createOpencodeClient } = await import('@opencode-ai/sdk/v2/client');
 
     logProgress(TAG, 'Starting OpenCode server...');
-    const opencode = await createOpencode({
-      port: 0,
-    });
-    this._client = opencode.client as OpenCodeClient;
-    this._server = opencode.server;
-    logProgress(TAG, `OpenCode server started at ${this._server!.url}`);
+    this._server = await spawnOpencodeServer();
+    this._client = createOpencodeClient({ baseUrl: this._server.url }) as OpenCodeClient;
+    logProgress(TAG, `OpenCode server started at ${this._server.url}`);
 
     // Register signal handlers for cleanup on unexpected exit.
     // SIGHUP catches terminal-window-close (sent as SIGHUP on Unix; Node maps
@@ -384,78 +483,85 @@ export class OpenCodeProvider implements AgentProvider {
     logDebug(TAG, `${prefix}Starting query: model=${this.providerID}/${this.modelID}, promptLen=${instructions.length}`);
     logDebugFull(TAG, `${prefix}Full prompt sent to AI`, instructions);
 
-    // At trace level, poll session messages every second for real-time progress.
-    // session.prompt() blocks, but setInterval callbacks run during the await.
     let toolCallCount = 0;
-    let lastLoggedPartCount = 0;
     let lastActivityTime = Date.now();
-    const logLevel = getLogLevel();
-    const isDebugOrTrace = logLevel === 'debug' || logLevel === 'trace';
-    const trace = logLevel === 'trace';
+    const debugEnabled = isDebugEnabled();
+    const trace = isTraceEnabled();
 
-    const progressInterval = isDebugOrTrace ? setInterval(async () => {
+    // Subscribe to the SSE event stream before calling session.prompt() so we
+    // catch events from the very first step. Filter to our sessionId so concurrent
+    // checks sharing the same server don't see each other's events.
+    // session.error is always surfaced at warn regardless of log level.
+    // Tool-progress events (message.part.updated) are only logged at debug/trace.
+    // See docs/opencode-provider-internals.md for why message.part.updated is used
+    // instead of session.next.tool.* and the --print-logs stderr capture.
+    const sseAbort = new AbortController();
+    const seenPartStatuses = new Map<string, string>(); // partId → last logged status
+
+    const sseTask = (async () => {
       try {
-        const messagesResult = await client.session.messages({
-          sessionID: sessionId,
-          directory: repositoryPath,
-        });
-        const messages = messagesResult.data ?? [];
-        const assistantMsg = [...messages].reverse().find(
-          (m: { info: { role: string } }) => m.info.role === 'assistant',
+        const sseResult = await client.event.subscribe(
+          { directory: repositoryPath },
+          { signal: sseAbort.signal },
         );
-        if (!assistantMsg) return;
+        for await (const evt of sseResult.stream) {
+          const e = evt as { type?: string; properties?: Record<string, unknown> };
+          const evtType = e.type ?? '';
+          const props = (e.properties ?? {}) as Record<string, unknown>;
+          if ((props['sessionID'] as string) !== sessionId) continue;
 
-        const parts = assistantMsg.parts as Array<{
-          type: string; tool?: string; text?: string;
-          state?: {
-            status: string;
-            input?: Record<string, unknown>;
-            error?: string;
-            output?: string;
-          };
-        }>;
-        if (parts.length <= lastLoggedPartCount) return;
-
-        for (let i = lastLoggedPartCount; i < parts.length; i++) {
-          const part = parts[i];
           lastActivityTime = Date.now();
 
-          if (part.type === 'tool') {
-            const state = part.state;
-            const toolName = part.tool ?? 'unknown';
-            const inputPreview = previewJSON(state?.input, 200);
-            if (state?.status === 'running') {
-              toolCallCount++;
-              logDebug(TAG, `${prefix}Tool[${toolCallCount}]: ${toolName} ${inputPreview} (${timer.elapsedStr()})`);
-              if (trace && JSON.stringify(state?.input).length > 200) {
-                logDebugFull(TAG, `${prefix}Full tool call input`, JSON.stringify(state?.input));
+          if (evtType === 'message.part.updated' && debugEnabled) {
+            const part = props['part'] as Record<string, unknown> | undefined;
+            if (!part) continue;
+            const partId = part['id'] as string;
+            const partType = part['type'] as string;
+            const state = part['state'] as Record<string, unknown> | undefined;
+            const status = (state?.['status'] as string) ?? '';
+
+            if (partType === 'tool') {
+              if (seenPartStatuses.get(partId) === status) continue;
+              // Record the status before the switch so that any unhandled status
+              // is still deduplicated on the next duplicate event, preventing
+              // re-admission after a status transition (e.g. spurious running
+              // after completed). Terminal statuses are deleted afterward to
+              // bound map size — once deleted, no further events are expected.
+              seenPartStatuses.set(partId, status);
+
+              const toolName = (part['tool'] as string) ?? 'unknown';
+              const input = state?.['input'] as Record<string, unknown> | undefined;
+              const inputPreview = previewJSON(input, 200);
+
+              if (status === 'running') {
+                toolCallCount++;
+                logDebug(TAG, `${prefix}Tool[${toolCallCount}]: ${toolName} ${inputPreview} (${timer.elapsedStr()})`);
+                if (trace && JSON.stringify(input).length > 200) {
+                  logDebugFull(TAG, `${prefix}Full tool call input`, JSON.stringify(input));
+                }
+              } else if (status === 'completed') {
+                seenPartStatuses.delete(partId); // terminal — no further events expected
+                logDebug(TAG, `${prefix}Tool done: ${toolName} (${timer.elapsedStr()})`);
+                const toolOutput = (state?.['output'] as string) ?? '';
+                if (trace && toolOutput.length > 200) logDebugFull(TAG, `${prefix}Full tool output (${toolOutput.length} chars)`, toolOutput);
+              } else if (status === 'error') {
+                seenPartStatuses.delete(partId); // terminal
+                const errorMsg = (state?.['error'] as string) ?? '(no error message)';
+                const errorPreview = errorMsg.length > 300 ? errorMsg.slice(0, 300) + '...' : errorMsg;
+                logDebug(TAG, `${prefix}Tool error: ${toolName} ${inputPreview} → ${errorPreview} (${timer.elapsedStr()})`);
               }
-            } else if (state?.status === 'completed') {
-              logDebug(TAG, `${prefix}Tool done: ${toolName} (${timer.elapsedStr()})`);
-              const toolOutput = state?.output ?? '';
-              if (trace && toolOutput.length > 200) logDebugFull(TAG, `${prefix}Full tool output (${toolOutput.length} chars)`, toolOutput);
-            } else if (state?.status === 'error') {
-              // Tools can transition running → error between polls, so the "running" log
-              // line may never fire for this tool. Always include the input so the user
-              // can see what was being attempted, plus the error message from the SDK.
-              const errorMsg = state.error ?? '(no error message)';
-              const errorPreview = errorMsg.length > 300 ? errorMsg.slice(0, 300) + '...' : errorMsg;
-              logDebug(
-                TAG,
-                `${prefix}Tool error: ${toolName} ${inputPreview} → ${errorPreview} (${timer.elapsedStr()})`,
-              );
             }
-          } else if (part.type === 'text' && part.text) {
-            const preview = part.text.length > 150 ? part.text.slice(0, 150) + '...' : part.text;
-            logDebug(TAG, `${prefix}Text: ${preview}`);
-            if (trace && part.text.length > 150) logDebugFull(TAG, `${prefix}Full assistant text`, part.text);
+          } else if (evtType === 'session.error') {
+            const error = props['error'] as Record<string, unknown> | undefined;
+            const errData = error?.['data'] as Record<string, unknown> | undefined;
+            const message = (errData?.['message'] as string) ?? (error?.['name'] as string) ?? 'unknown error';
+            logWarn(TAG, `${prefix}OpenCode session error: ${message}`);
           }
         }
-        lastLoggedPartCount = parts.length;
       } catch {
-        // Polling failure is non-fatal
+        // SSE stream error (including AbortError on teardown) is non-fatal
       }
-    }, TRACE_POLL_MS) : undefined;
+    })();
 
     // Heartbeat timer (all log levels)
     const heartbeatInterval = setInterval(() => {
@@ -478,7 +584,8 @@ export class OpenCodeProvider implements AgentProvider {
         directory: repositoryPath,
       });
     } finally {
-      if (progressInterval) clearInterval(progressInterval);
+      sseAbort.abort();
+      await sseTask;
       clearInterval(heartbeatInterval);
     }
 

@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OpenCodeProvider } from '../src/opencode-provider.js';
 import { FatalProviderError } from '../src/types.js';
+import { addHandler, removeHandler, type LogEntry, type LogHandler } from '../src/logging.js';
 
 /** Accessor for the provider's private marker methods/state in tests. */
 interface MarkerInternals {
@@ -52,6 +53,9 @@ interface PromptCall {
  */
 const DEFAULT_MOCK_TOOL_IDS = ['read', 'glob', 'grep', 'list', 'bash', 'edit', 'webfetch', 'websearch'];
 
+/** Seed events for the SSE mock stream. */
+type SseEvent = { type: string; properties: Record<string, unknown> };
+
 function createMockClient(options?: {
   providers?: MockProvider[];
   promptResponse?: {
@@ -59,6 +63,7 @@ function createMockClient(options?: {
     parts?: Array<{ type: string; text?: string }>;
   };
   toolIds?: string[];
+  sseEvents?: SseEvent[];
 }) {
   const providers = options?.providers ?? [
     {
@@ -81,6 +86,7 @@ function createMockClient(options?: {
   };
 
   const toolIds = options?.toolIds ?? DEFAULT_MOCK_TOOL_IDS;
+  const sseEvents = options?.sseEvents ?? [];
 
   const calls: {
     sessionCreate: Array<Record<string, unknown>>;
@@ -114,6 +120,27 @@ function createMockClient(options?: {
           { info: { role: 'assistant' }, parts: defaultPromptResponse.parts ?? [] },
         ],
       }),
+    },
+    event: {
+      subscribe: async (_params?: unknown, options?: { signal?: AbortSignal }) => {
+        const signal = options?.signal;
+        async function* makeStream() {
+          for (const evt of sseEvents) {
+            if (signal?.aborted) return;
+            yield evt;
+          }
+          // After seeded events are exhausted, block until aborted so the SSE task
+          // mirrors real server behaviour (stream stays open until the caller aborts).
+          // Check signal.aborted first — abort() may have been called before we reach
+          // this point (signal already set when addEventListener would be registered,
+          // and AbortSignal does not re-fire already-dispatched events).
+          if (!signal || signal.aborted) return;
+          await new Promise<void>((resolve) => {
+            signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+        }
+        return { stream: makeStream() };
+      },
     },
     calls,
   };
@@ -410,6 +437,57 @@ describe('OpenCodeProvider — error handling', () => {
         return true;
       },
     );
+  });
+});
+
+describe('OpenCodeProvider — SSE event stream', () => {
+  it('surfaces session.error events at warn level regardless of log level', async () => {
+    const warnMessages: string[] = [];
+    const spy: LogHandler = {
+      name: 'test-warn-spy',
+      level: 'warn',
+      handle(entry: LogEntry) {
+        if (entry.level === 'warn') warnMessages.push(entry.message);
+      },
+      close: async () => {},
+    };
+    addHandler(spy);
+
+    try {
+      // Capture the session ID dynamically from the mock's session.create so the
+      // SSE event's sessionID matches what the provider actually uses, without
+      // hardcoding mock internals.
+      let capturedSessionId = '';
+      const pendingEvents: SseEvent[] = [];
+      const client = createMockClient({ sseEvents: pendingEvents });
+      const origCreate = client.session.create;
+      client.session.create = async (params: Record<string, unknown>) => {
+        const result = await origCreate(params);
+        capturedSessionId = (result.data?.id as string) ?? '';
+        // Seed the event now that we know the session ID.
+        pendingEvents.push({
+          type: 'session.error',
+          properties: {
+            sessionID: capturedSessionId,
+            error: { name: 'UnknownError', data: { message: 'Model not found: provider/model.' } },
+          },
+        });
+        return result;
+      };
+
+      const provider = new OpenCodeProvider({ _client: client as never });
+      await provider.initialize({ model: 'test-provider/test-model' });
+
+      await provider.executeCheck('test instructions', '/repo/path');
+
+      assert.ok(capturedSessionId !== '', 'Expected session.create to have been called');
+      assert.ok(
+        warnMessages.some((m) => m.includes('Model not found: provider/model.')),
+        `Expected a warn log containing the session.error message. Got: ${JSON.stringify(warnMessages)}`,
+      );
+    } finally {
+      removeHandler('test-warn-spy');
+    }
   });
 });
 
