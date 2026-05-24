@@ -43,7 +43,7 @@ Then run your check:
 aghast scan /path/to/target-repo --config-dir ./my-checks --output-format sarif
 ```
 
-> **Using OpenCode?** Add `--agent-provider opencode --model opencode/minimax-m2.5-free` to the command above, or choose another model that you want to use.
+> **Using OpenCode?** Add `--agent-provider opencode --model opencode/nemotron-3-super-free` to the command above, or choose another model that you want to use.
 
 Results are written to `security_checks_results.sarif` in the target repo, a SARIF 2.1.0 file compatible with GitHub Code Scanning and other SARIF viewers.
 
@@ -66,7 +66,7 @@ The repo includes six example checks demonstrating the three check types (`repos
 | 5 | [Various Security Vulnerabilities](#example-5-various-security-vulnerabilities-targeted-check-openant-discovery-general-vulnerability-analysis) | targeted | OpenAnt | general vulnerability discovery | API key, OpenAnt |
 | 6 | [Diff-Scoped Validation Scanning](#example-6-diff-scoped-validation-scanning-targeted-check-semgrep-discovery-with-diff-filtering) | targeted | Semgrep | custom | API key, Semgrep |
 
-> **Using OpenCode?** All examples that require an API key also work with the OpenCode provider. Add `--agent-provider opencode --model opencode/minimax-m2.5-free` to any `aghast scan` command below, or choose the model you want. See [Scanning → Using OpenCode](scanning.md#using-opencode) for setup.
+> **Using OpenCode?** All examples that require an API key also work with the OpenCode provider. Add `--agent-provider opencode --model opencode/nemotron-3-super-free` to any `aghast scan` command below, or choose the model you want. See [Scanning → Using OpenCode](scanning.md#using-opencode) for setup.
 
 ### Example 1: Business Logic Bypass (repository check)
 

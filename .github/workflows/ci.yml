@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGRESSION_TEST_MODEL: opencode/minimax-m2.5-free
+  REGRESSION_TEST_MODEL: opencode/nemotron-3-super-free
 
 permissions:
   contents: read

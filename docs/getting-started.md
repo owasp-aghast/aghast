@@ -50,7 +50,7 @@ Install OpenCode from [https://opencode.ai](https://opencode.ai), then run `open
 
 ```bash
 # Per-scan:
-aghast scan <repo-path> --config-dir <path> --agent-provider opencode --model opencode/minimax-m2.5-free
+aghast scan <repo-path> --config-dir <path> --agent-provider opencode --model opencode/nemotron-3-super-free
 ```
 
 **Pin defaults (applies to both options).** Use `aghast build-config` to write a `runtime-config.json` in your config directory so future scans use your chosen provider and model without any flags:
@@ -62,7 +62,7 @@ aghast build-config --config-dir <path>            # interactive (covers both op
 aghast build-config --config-dir <path> --provider claude-code --model sonnet --non-interactive
 
 # Option B — pin opencode with a specific model:
-aghast build-config --config-dir <path> --provider opencode --model opencode/minimax-m2.5-free --non-interactive
+aghast build-config --config-dir <path> --provider opencode --model opencode/nemotron-3-super-free --non-interactive
 ```
 
 See [Configuration Reference → Runtime Configuration](configuration.md#runtime-configuration) for the full schema.

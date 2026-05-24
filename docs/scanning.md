@@ -60,7 +60,7 @@ aghast supports multiple agent providers via the `--agent-provider` flag or `age
 | Provider | `--agent-provider` | `--model` format | Prerequisites |
 |----------|--------------------|------------------|---------------|
 | Claude Code (default) | `claude-code` | Model name (e.g. `haiku`, `sonnet`) | `ANTHROPIC_API_KEY` env var |
-| OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/minimax-m2.5-free`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
+| OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/nemotron-3-super-free`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
 
 ### Using OpenCode
 
@@ -72,10 +72,10 @@ The OpenCode provider delegates to any of the 75+ LLM providers supported by [Op
 2. Configure a provider: run `opencode` and use `/connect` to set up credentials
 3. Run a scan:
    ```bash
-   aghast scan ./my-repo --config-dir ./checks --agent-provider opencode --model opencode/minimax-m2.5-free
+   aghast scan ./my-repo --config-dir ./checks --agent-provider opencode --model opencode/nemotron-3-super-free
    ```
 
-The default model is `opencode/minimax-m2.5-free`. Use the `providerID/modelID` format to select any configured provider and model.
+The default model is `opencode/nemotron-3-super-free`. Use the `providerID/modelID` format to select any configured provider and model.
 
 ## Runtime Configuration
 
