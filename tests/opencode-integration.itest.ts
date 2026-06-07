@@ -1,8 +1,7 @@
 /**
  * Real OpenCode integration tests.
  * These tests actually invoke the OpenCode SDK and send prompts to a real LLM.
- * Uses opencode/nemotron-3-super-free (free, no API key needed).
- * This model might need to be updated every so often...
+ * Uses the model from REGRESSION_TEST_MODEL env var (defaults to opencode/nemotron-3-ultra-free).
  * Requires opencode CLI to be installed (npm install -g opencode-ai).
  * Skip explicitly by setting AGHAST_SKIP_OPENCODE_TESTS=true.
  */
@@ -13,6 +12,7 @@ import { OpenCodeProvider } from '../src/opencode-provider.js';
 import { FatalProviderError } from '../src/types.js';
 
 const skip = !!process.env.AGHAST_SKIP_OPENCODE_TESTS;
+const MODEL = process.env.REGRESSION_TEST_MODEL ?? 'opencode/nemotron-3-ultra-free';
 
 if (skip) {
   console.log('Skipping OpenCode integration tests (AGHAST_SKIP_OPENCODE_TESTS set)');
@@ -28,11 +28,11 @@ describe('OpenCode integration tests', { skip }, () => {
     }
   });
 
-  it('initializes with opencode/nemotron-3-super-free and validates model', async () => {
+  it(`initializes with ${MODEL} and validates model`, async () => {
     const provider = new OpenCodeProvider();
     providers.push(provider);
-    await provider.initialize({ model: 'opencode/nemotron-3-super-free' });
-    assert.equal(provider.getModelName(), 'opencode/nemotron-3-super-free');
+    await provider.initialize({ model: MODEL });
+    assert.equal(provider.getModelName(), MODEL);
     const valid = await provider.validateConfig();
     assert.equal(valid, true);
   });
@@ -54,7 +54,7 @@ describe('OpenCode integration tests', { skip }, () => {
   it('executeCheck sends a prompt and gets a parsed response', async () => {
     const provider = new OpenCodeProvider();
     providers.push(provider);
-    await provider.initialize({ model: 'opencode/nemotron-3-super-free' });
+    await provider.initialize({ model: MODEL });
 
     // Simple prompt that should return empty issues
     const result = await provider.executeCheck(
@@ -71,7 +71,7 @@ describe('OpenCode integration tests', { skip }, () => {
   it('executeCheck returns issues when prompted to find them', async () => {
     const provider = new OpenCodeProvider();
     providers.push(provider);
-    await provider.initialize({ model: 'opencode/nemotron-3-super-free' });
+    await provider.initialize({ model: MODEL });
 
     const result = await provider.executeCheck(
       'Return exactly this JSON and nothing else: {"issues": [{"file": "test.js", "startLine": 1, "endLine": 2, "description": "Test issue"}]}',
@@ -88,7 +88,7 @@ describe('OpenCode integration tests', { skip }, () => {
   it('cleanup stops the server without error', async () => {
     const provider = new OpenCodeProvider();
     // Don't push to providers array — we clean up manually here
-    await provider.initialize({ model: 'opencode/nemotron-3-super-free' });
+    await provider.initialize({ model: MODEL });
     await provider.cleanup();
     // Second cleanup should be idempotent
     await provider.cleanup();
