@@ -13,6 +13,25 @@ IMPORTANT:
 - If FALSE POSITIVE (not actually vulnerable), return {"issues": []}
 - Do NOT search for or report other vulnerabilities — only validate the specific finding
 
+VALIDATION PROCESS:
+
+You can read the whole repository — trace the code yourself and never guess a step you have not read. The reported location is only a sink *pattern*; matching it is NOT sufficient to confirm. Work through these steps in order.
+
+Step 1 — Identify the sink. Name the dangerous operation and the exact value(s) flowing into it at this location.
+
+Step 2 — For input-driven issues (injection, XSS, path traversal, SSRF, XXE, SQL/command injection, deserialization, open redirect, etc.), trace each value to its origin:
+  a. Follow the value BACKWARD through assignments, function calls, and across files until you reach where it enters the program. Open each function you pass through.
+  b. Classify the origin. Attacker-controllable sources include HTTP request body / query / headers / route params, uploaded file content or filenames, and stored values (e.g. DB columns) an attacker can write through any reachable path.
+  c. Do NOT assume identity, session, role, or auth-derived values are trusted. Verify how each is produced: is a token's signature actually verified, is the signing secret strong and not hardcoded, is the value re-validated or re-loaded from a trusted store rather than taken directly from a forgeable token/cookie/header? An unverified or forgeable identity value is attacker-controllable.
+
+Step 3 — Analyse the transformations along the path (concatenation, prefixing, encoding, parsing, path normalization). Decide whether they enable or neutralize the attack for the specific inputs that can actually reach the sink. A sink mechanically incapable of the attack for every reachable input is NOT vulnerable.
+
+Step 4 — Check for mitigations: sanitization, validation, parameterization/escaping, framework protections.
+
+Step 5 — Decide. TRUE POSITIVE only if a complete path exists from an attacker-controllable source to the sink, the sink can perform the attack with the reachable inputs, and no mitigation breaks the path. Otherwise return {"issues": []}.
+
+Record the path you actually verified in the dataFlow array below — every step backed by code you read, not assumed.
+
 OUTPUT FORMAT:
 
 Return your findings in the following JSON format:
