@@ -26,7 +26,7 @@ describe('error codes', () => {
     const result = formatFatalError('something broke', '1.2.3');
     assert.ok(result.includes('AGHAST Fatal Error [E9001]: something broke'));
     assert.ok(result.includes('Version: 1.2.3'));
-    assert.ok(result.includes('github.com/BounceSecurity/aghast/issues/new'));
+    assert.ok(result.includes('github.com/owasp-aghast/aghast/issues/new'));
     assert.ok(result.includes('labels=bug'));
   });
 });

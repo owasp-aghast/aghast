@@ -1,11 +1,12 @@
 # AI Guided Hybrid Application Static Testing (AGHAST)
 
 ![Status: Beta](https://img.shields.io/badge/Status-Beta-yellow)
-[![CI](https://github.com/BounceSecurity/aghast/actions/workflows/ci.yml/badge.svg)](https://github.com/BounceSecurity/aghast/actions/workflows/ci.yml)
+[![CI](https://github.com/owasp-aghast/aghast/actions/workflows/ci.yml/badge.svg)](https://github.com/owasp-aghast/aghast/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/BounceSecurity/aghast/badge)](https://scorecard.dev/viewer/?uri=github.com/BounceSecurity/aghast)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/owasp-aghast/aghast/badge)](https://scorecard.dev/viewer/?uri=github.com/owasp-aghast/aghast)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12560/badge)](https://www.bestpractices.dev/projects/12560)
-[![By Bounce Security](https://img.shields.io/badge/By-Bounce_Security-f79421)](https://bouncesecurity.com/)
+[![OWASP Incubator](https://img.shields.io/badge/OWASP-Incubator_Project-blue.svg)](https://aghast.owasp.org)
+[![Maintaining Supporter: Bounce Security](https://img.shields.io/badge/Maintaining_Supporter-Bounce_Security-f79421)](https://bouncesecurity.com/)
 
 > **Note**
 > AGHAST is in **beta** and may have unexpected bugs. We follow [semantic versioning](https://semver.org/) — breaking changes to APIs, CLI flags, configuration formats, and output schemas will only occur in minor version bumps (0.x.0) until we reach 1.0.
@@ -17,12 +18,12 @@ For the rest of us, AGHAST is an open-source framework that lets you define and 
 Define your checks, which repositories they relate to, and get accurate and structured results (JSON or SARIF).
 
 <p align="center">
-  <img src="/assets/img/aghastbouncecaption.png" alt="AGHAST" width="50%">
+  <img src="/assets/img/aghastowaspcaption.png" alt="AGHAST" width="50%">
 </p>
 
 ## What AGHAST Does
 
-* You can read more about this tool on our [product page](https://bouncesecurity.com/aghast).
+* AGHAST is an [OWASP](https://owasp.org/) Incubator project — see the [project page at aghast.owasp.org](https://aghast.owasp.org) for full details. It is maintained with the support of [Bounce Security](https://bouncesecurity.com/).
 * There is a brief introduction video [here](https://www.youtube.com/watch?v=B76A33l1LyI).
 * For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
 * Alternatively, there are examples of several check types in [Trying It Out](docs/trying-it-out.md#option-b-use-the-example-checks) with video explanations of [in this YouTube playlist](https://www.youtube.com/playlist?list=PLjjq7fuK4pqubFNVw3miBpdd6TXif4WHW).
@@ -106,12 +107,21 @@ Results are structured JSON (or SARIF) with per-check status and detailed issues
 - [Configuration Reference](docs/configuration.md) — check schemas, check types, runtime config
 - [Development](docs/development.md) — setup, building, testing, releasing
 
+## Maintainers and Supporters
+
+This is an [OWASP](https://owasp.org/) Incubator project, led by:
+
+- Josh Grossman ([josh.grossman@owasp.org](mailto:josh.grossman@owasp.org))
+- Avi Douglen ([avi.douglen@owasp.org](mailto:avi.douglen@owasp.org))
+
+[Bounce Security](https://bouncesecurity.com/) is the original contributor and continues as a **maintaining supporter** of the project.
+
 ## Contributing
 
-Use [GitHub Discussions](https://github.com/BounceSecurity/aghast/discussions) for questions and ideas, and [GitHub Issues](https://github.com/BounceSecurity/aghast/issues) for bug reports and feature requests. We are not currently accepting pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the current contribution policy.
+Use [GitHub Issues](https://github.com/owasp-aghast/aghast/issues) for questions, bug reports, and feature requests. We are not currently accepting pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the current contribution policy.
 
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE).
 
-Copyright (C) 2026 [Bounce Consulting Ltd.](https://bouncesecurity.com/)
+Copyright (C) 2026 [OWASP Foundation](https://owasp.org/). Originally contributed by [Bounce Consulting Ltd.](https://bouncesecurity.com/)

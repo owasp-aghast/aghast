@@ -12,8 +12,8 @@ Only the latest released version of aghast receives security updates.
 
 If you discover a security vulnerability in aghast, please report it responsibly using one of the following private channels:
 
-- **GitHub Private Vulnerability Reporting** (preferred): Use the [Report a vulnerability](https://github.com/BounceSecurity/aghast/security/advisories/new) button on the Security tab of this repository.
-- **Email**: Send details to **info@bouncesecurity.com** if you are unable to use GitHub's reporting feature.
+- **GitHub Private Vulnerability Reporting** (preferred): Use the [Report a vulnerability](https://github.com/owasp-aghast/aghast/security/advisories/new) button on the Security tab of this repository.
+- **Email**: Send details to **josh.grossman@owasp.org** or **avi.douglen@owasp.org** if you are unable to use GitHub's reporting feature.
 
 Please include:
 
@@ -33,4 +33,4 @@ Where applicable, the release notes will include the assigned CVE ID and a short
 
 ## Scope
 
-This policy covers the aghast CLI tool and its published npm package (`@bouncesecurity/aghast`). Security check definitions maintained in separate configuration repositories are out of scope for this policy.
+This policy covers the aghast CLI tool and its published npm package (`@owasp-aghast/aghast`). Security check definitions maintained in separate configuration repositories are out of scope for this policy.

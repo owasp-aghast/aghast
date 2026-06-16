@@ -191,16 +191,27 @@ Releases (stable and prerelease) are created via the single `release.yml` GitHub
 
 **Stable release** — input `x.y.z` (e.g. `1.2.0`). Must be strictly greater than current. Workflow updates `package.json` + install command in `docs/getting-started.md`, commits to main, tags `v<version>`, builds, packs, publishes to npm under the default `latest` dist-tag, and creates a GitHub Release.
 
-**Prerelease** — input `x.y.z-<id>.<n>` (e.g. `0.5.0-beta.1`). Base `x.y.z` must be strictly greater than current stable; `<id>` must be alphabetic (`beta` / `rc` / `alpha`); `<n>` must be `>= 1`. Workflow bumps `package.json` / `package-lock.json` in the runner only — `main` is NOT modified, so subsequent stable releases still see the current stable as the base for their strictly-greater check. Creates and atomically pushes only the tag `v<version>` (version-bump commit is reachable only through the tag). Publishes to npm with `npm publish --tag <id>`, leaving the `latest` dist-tag unchanged. Users opt in via `npm install @bouncesecurity/aghast@<id>`. GitHub Release is marked as pre-release.
+**Prerelease** — input `x.y.z-<id>.<n>` (e.g. `0.5.0-beta.1`). Base `x.y.z` must be strictly greater than current stable; `<id>` must be alphabetic (`beta` / `rc` / `alpha`); `<n>` must be `>= 1`. Workflow bumps `package.json` / `package-lock.json` in the runner only — `main` is NOT modified, so subsequent stable releases still see the current stable as the base for their strictly-greater check. Creates and atomically pushes only the tag `v<version>` (version-bump commit is reachable only through the tag). Publishes to npm with `npm publish --tag <id>`, leaving the `latest` dist-tag unchanged. Users opt in via `npm install @owasp-aghast/aghast@<id>`. GitHub Release is marked as pre-release.
 
-Users install stable via `npm install -g @bouncesecurity/aghast@<version>` (requires `~/.npmrc` with `@bouncesecurity` scope config). Shared build/sign/CI-wait steps live in `.github/release-actions/`.
+Users install stable via `npm install -g @owasp-aghast/aghast@<version>` (requires `~/.npmrc` with `@owasp-aghast` scope config). Shared build/sign/CI-wait steps live in `.github/release-actions/`.
+
+### Pull Request Titles (Release Notes)
+
+The public repo generates GitHub Release notes from merged PR titles (`gh release create --generate-notes`), and squash-merge uses the PR title as the commit subject. **A PR title is therefore a public release-note line — write it as one:**
+
+- Describe the user-facing change and its outcome, not the mechanism (and never the sync itself, e.g. no `chore: sync from private`).
+- Imperative mood, specific, and self-contained — a reader skimming the release notes should understand it without opening the PR.
+- Avoid bare verbs like `fix: fix bug`; say what was fixed.
+- Prefix with a type (`feat` / `fix` / `docs` / `chore` / `ci`) so notes can be grouped by `.github/release.yml`.
+
+We rely on this convention (and review) rather than a CI title linter — a linter enforces shape, not meaning.
 
 ## Documentation
 
 Doc pages in `docs/` have navigation (index breadcrumb, previous/next links). When adding, removing, or reordering doc pages, update the navigation links in all affected pages and the index in `docs/README.md`. The page order is: How It Works → Getting Started → Trying It Out → Scanning → Creating Checks → Configuration Reference → Development.
 
 ## Licensing
-This project is licensed under AGPL v3. Copyright (C) 2026 Bounce Consulting Ltd.
+This project is licensed under AGPL v3. Copyright (C) 2026 OWASP Foundation. Originally contributed by Bounce Consulting Ltd.
 
 When setting up or modifying this repository:
 - Ensure a `LICENSE` file exists in the root containing the full AGPLv3 license text

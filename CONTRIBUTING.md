@@ -4,7 +4,7 @@ Thank you for your interest in AGHAST! This document explains how you can contri
 
 ## Bug Reports and Feature Requests
 
-We welcome bug reports and feature requests via [GitHub Issues](https://github.com/BounceSecurity/aghast/issues).
+We welcome bug reports and feature requests via [GitHub Issues](https://github.com/owasp-aghast/aghast/issues).
 
 When filing a bug report, please include:
 

@@ -35,8 +35,8 @@ if (isPrerelease) {
 for (const file of ['docs/getting-started.md']) {
   let content = fs.readFileSync(file, 'utf-8');
   content = content.replace(
-    /@bouncesecurity\/aghast@[0-9]+\.[0-9]+\.[0-9]+/g,
-    '@bouncesecurity/aghast@' + version
+    /@owasp-aghast\/aghast@[0-9]+\.[0-9]+\.[0-9]+/g,
+    '@owasp-aghast/aghast@' + version
   );
   fs.writeFileSync(file, content);
 }
