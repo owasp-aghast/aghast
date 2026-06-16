@@ -465,7 +465,7 @@ jobs:
 
       - name: Install from tarball
         shell: bash
-        run: npm install -g ./aghast-install/bouncesecurity-aghast-*.tgz
+        run: npm install -g ./aghast-install/owasp-aghast-aghast-*.tgz
 
       - name: Verify CLI works
         run: |

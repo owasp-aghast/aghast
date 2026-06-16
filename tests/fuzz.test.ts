@@ -705,7 +705,7 @@ describe('fuzz: formatting and validation', () => {
         fc.property(fc.string(), fc.string(), (message, version) => {
           const result = formatFatalError(message, version);
           assert.ok(
-            result.includes('github.com/BounceSecurity/aghast/issues/new'),
+            result.includes('github.com/owasp-aghast/aghast/issues/new'),
             `should contain issue link: ${result}`,
           );
         }),

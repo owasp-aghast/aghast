@@ -23,13 +23,13 @@ This guide walks you through installing aghast and setting up your environment.
 ## 1. Install aghast
 
 ```bash
-npm install -g @bouncesecurity/aghast@0.7.5
+npm install -g @owasp-aghast/aghast@0.7.5
 ```
 
 To uninstall:
 
 ```bash
-npm uninstall -g @bouncesecurity/aghast
+npm uninstall -g @owasp-aghast/aghast
 ```
 
 ## 2. Set up an agent provider

@@ -156,8 +156,8 @@ jobs:
           gh release create "v$INPUT_VERSION" \
             --title "v$INPUT_VERSION" \
             --generate-notes \
-            "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
-            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"
+            "owasp-aghast-aghast-${INPUT_VERSION}.tgz" \
+            "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"
 
       - name: Create GitHub Release (prerelease)
         if: steps.detect.outputs.is_prerelease == 'true'
@@ -169,5 +169,5 @@ jobs:
             --title "v$INPUT_VERSION" \
             --prerelease \
             --generate-notes \
-            "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
-            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"
+            "owasp-aghast-aghast-${INPUT_VERSION}.tgz" \
+            "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"

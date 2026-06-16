@@ -12,7 +12,7 @@
 Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/BounceSecurity/aghast.git
+git clone https://github.com/owasp-aghast/aghast.git
 cd aghast
 npm install
 ```
@@ -66,10 +66,10 @@ Prereleases (betas, release candidates) are published via the **same Release wor
 3. The workflow automatically:
    - Bumps `package.json` and `package-lock.json` in the runner only — `main` is **not** modified, so subsequent stable releases still see the current stable version as the base for the "strictly greater" check.
    - Creates and atomically pushes only the tag `v<version>` (the version-bump commit is reachable only through the tag).
-   - Builds, packs, signs, and publishes to npm with `--tag <id>` (e.g. `--tag beta`). The default `latest` dist-tag is unaffected, so `npm install @bouncesecurity/aghast` continues to resolve to the stable release.
+   - Builds, packs, signs, and publishes to npm with `--tag <id>` (e.g. `--tag beta`). The default `latest` dist-tag is unaffected, so `npm install @owasp-aghast/aghast` continues to resolve to the stable release.
    - Creates a GitHub Release marked as **pre-release** so it doesn't appear as "Latest" on the releases page.
 
-Users opt into a prerelease explicitly with `npm install -g @bouncesecurity/aghast@<id>` (e.g. `@beta`).
+Users opt into a prerelease explicitly with `npm install -g @owasp-aghast/aghast@<id>` (e.g. `@beta`).
 
 Shared build/sign/CI-wait steps used by both flows live under `.github/release-actions/`.
 

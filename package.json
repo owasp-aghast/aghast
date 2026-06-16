@@ -1,11 +1,11 @@
 {
-  "name": "@bouncesecurity/aghast",
+  "name": "@owasp-aghast/aghast",
   "version": "0.7.5",
   "description": "AI Guided Hybrid Application Static Testing",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BounceSecurity/aghast.git"
+    "url": "https://github.com/owasp-aghast/aghast.git"
   },
   "bin": {
     "aghast": "dist/cli.js"

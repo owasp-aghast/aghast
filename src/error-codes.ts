@@ -74,7 +74,7 @@ export function formatError(errorCode: ErrorCode, message: string): string {
 export function formatFatalError(message: string, version: string): string {
   const title = encodeURIComponent(`[Bug] ${message}`);
   const body = encodeURIComponent(`**Version:** ${version}\n\n**Error:**\n${message}`);
-  const url = `https://github.com/BounceSecurity/aghast/issues/new?title=${title}&body=${body}&labels=bug`;
+  const url = `https://github.com/owasp-aghast/aghast/issues/new?title=${title}&body=${body}&labels=bug`;
   return [
     `AGHAST Fatal Error [${ERROR_CODES.E9001.code}]: ${message}`,
     `Version: ${version}`,

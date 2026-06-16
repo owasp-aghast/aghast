@@ -41,7 +41,7 @@ runs:
       env:
         INPUT_VERSION: ${{ inputs.version }}
       run: |
-        TARBALL="bouncesecurity-aghast-${INPUT_VERSION}.tgz"
+        TARBALL="owasp-aghast-aghast-${INPUT_VERSION}.tgz"
         SIGNATURE="${TARBALL}.sigstore"
         echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
         echo "signature=$SIGNATURE" >> "$GITHUB_OUTPUT"
