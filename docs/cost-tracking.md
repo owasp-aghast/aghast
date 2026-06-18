@@ -42,9 +42,10 @@ discounts (cache reads are billed at roughly 10% of the regular input rate,
 cache writes at roughly 125%), and reflects any provider-side adjustments.
 It is as accurate as any cost figure available outside the Anthropic Console.
 
-When `AGHAST_LOCAL_CLAUDE=true`, the SDK reports an API-equivalent figure.
-AGHAST labels it `(covered by subscription — claude-agent-sdk)` and shows the
-word "equivalent" in the banner. See [Subscription mode](#subscription-mode-local-claude) below.
+When the `claude-code` provider runs against a local Claude session instead of
+an API key, the SDK reports an API-equivalent figure. AGHAST labels it
+`(covered by subscription — claude-agent-sdk)` and shows the word "equivalent"
+in the banner. See [Subscription mode](#subscription-mode-local-claude) below.
 
 ### 2. OpenCode `msg.cost` — `(reported by opencode — see docs/cost-tracking.md)`
 
@@ -116,9 +117,11 @@ For the rate-table fallback, cache reads and writes are costed at the
 
 ## Subscription mode (local Claude)
 
-When `AGHAST_LOCAL_CLAUDE=true`, AGHAST uses a locally installed Claude Code
-session rather than the API. **No per-token billing occurs** — consumption
-comes out of your Pro or Max subscription quota instead.
+When the `claude-code` provider authenticates with a local Claude session
+instead of an API key — auto-detected when no `ANTHROPIC_API_KEY` is set but
+you're logged in to a local session — AGHAST uses that session rather than the
+API. **No per-token billing occurs** — consumption comes out of your Pro or Max
+subscription quota instead.
 
 The Claude Agent SDK still returns a `total_cost_usd` value in this mode. That
 number represents the API-equivalent cost of the work — what it *would have*

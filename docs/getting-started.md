@@ -13,7 +13,7 @@ This guide walks you through installing aghast and setting up your environment.
 
 - **Node.js 20+**
 - **An agent provider**, required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks). Either:
-  - An **Anthropic API key** for the default `claude-code` provider, or
+  - The default `claude-code` provider, authenticated with **either** an **Anthropic API key** **or** a **logged-in local Claude session** (see step 2), or
   - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports, including some **free options**.
 
   See [Scanning → Agent Providers](scanning.md#agent-providers) for the full comparison.
@@ -43,6 +43,8 @@ export ANTHROPIC_API_KEY=your-api-key
 ```
 
 Claude Code is the default provider, so no flag is needed at scan time. To override the model, pass `--model <name>` per scan (see [Scanning](scanning.md)) or pin a default as shown below.
+
+If you don't set `ANTHROPIC_API_KEY`, the `claude-code` provider falls back to a **logged-in local Claude session** (the OAuth login used by Claude Code — run `claude` and `/login` if you aren't signed in already). aghast errors only when it finds neither an API key nor a logged-in local session.
 
 **Option B — OpenCode**
 

@@ -152,7 +152,8 @@ describe('AgentProvider interface compliance — ClaudeCodeProvider', () => {
     const originalLocalClaude = process.env.AGHAST_LOCAL_CLAUDE;
     delete process.env.AGHAST_LOCAL_CLAUDE;
     try {
-      const provider = new ClaudeCodeProvider();
+      // Inject a "not logged in" detector so the test never spawns the real agent SDK.
+      const provider = new ClaudeCodeProvider({ _detectLocalLogin: async () => false });
       await assert.rejects(
         async () => provider.initialize({}),
         /ANTHROPIC_API_KEY/,

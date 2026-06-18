@@ -33,15 +33,17 @@ interface CLIResult {
 function runCLI(args: string[], extraEnv: Record<string, string | undefined> = {}): Promise<CLIResult> {
   return new Promise((resolvePromise) => {
     // Empty strings (rather than `delete`) so dotenv in the child won't refill from .env.
-    // ANTHROPIC_API_KEY/AGHAST_LOCAL_CLAUDE are blanked so listModels() rejects fast on the
-    // claude-code provider's "API key required" check, instead of falling through to the
-    // agent SDK path which spawns a Claude CLI subprocess (slow on Windows/WSL).
+    // ANTHROPIC_API_KEY/AGHAST_LOCAL_CLAUDE are blanked, and AGHAST_MOCK_LOCAL_LOGIN='false'
+    // forces the local-login probe to report "not logged in", so listModels() rejects fast
+    // on the claude-code provider's credential check instead of spawning a Claude CLI
+    // subprocess to probe `accountInfo()` (slow on Windows/WSL).
     const baseEnv = {
       ...process.env,
       NO_COLOR: '1',
       AGHAST_CONFIG_DIR: '',
       ANTHROPIC_API_KEY: '',
       AGHAST_LOCAL_CLAUDE: '',
+      AGHAST_MOCK_LOCAL_LOGIN: 'false',
     };
     for (const [k, v] of Object.entries(extraEnv)) {
       if (v === undefined) {

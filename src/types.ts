@@ -359,9 +359,16 @@ export interface AgentProvider {
   /**
    * Check that required prerequisites (API keys, binaries, etc.) are available.
    * Called before initialize() to give early feedback. Throws with a descriptive
-   * error message if a prerequisite is missing.
+   * error message if a prerequisite is missing. May be async (e.g. the Claude Code
+   * provider probes local login status when no API key is set).
    */
-  checkPrerequisites?(): void;
+  checkPrerequisites?(): void | Promise<void>;
+  /**
+   * Whether the provider resolved to local (subscription-covered) authentication rather
+   * than an API key. Used to label cost/budget output. Returns undefined-equivalent when
+   * the provider has no concept of local mode (callers fall back to env detection).
+   */
+  isLocalMode?(): boolean;
   getModelName?(): string;
   setModel?(model: string): void;
   cleanup?(): Promise<void>;

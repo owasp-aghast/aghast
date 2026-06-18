@@ -84,11 +84,14 @@ describe('CLI: --output flag', () => {
 describe('CLI: ANTHROPIC_API_KEY and --agent-provider flag', () => {
   afterEach(cleanupOutput);
 
-  it('missing ANTHROPIC_API_KEY exits 1 with error message', async () => {
+  it('missing ANTHROPIC_API_KEY and not logged in exits 1 with error message', async () => {
+    // AGHAST_MOCK_LOCAL_LOGIN=false forces the local-login probe to report "not logged in"
+    // so the test is hermetic regardless of the host's actual Claude login state.
     const { exitCode, stderr } = await runCLI({
       ANTHROPIC_API_KEY: '',
       AGHAST_LOCAL_CLAUDE: '',
       AGHAST_MOCK_AI: '',
+      AGHAST_MOCK_LOCAL_LOGIN: 'false',
     }, [fixtureRepo, '--config-dir', singleCheckConfigDir]);
     assert.equal(exitCode, 1);
     assert.ok(stderr.includes('ANTHROPIC_API_KEY'));
@@ -96,7 +99,7 @@ describe('CLI: ANTHROPIC_API_KEY and --agent-provider flag', () => {
 
   it('AGHAST_LOCAL_CLAUDE=true skips ANTHROPIC_API_KEY requirement', async () => {
     // This would fail at the API call stage (no real local Claude in tests),
-    // but it should NOT fail with the "ANTHROPIC_API_KEY is required" error.
+    // but it should NOT fail with the credentials error.
     // Use a short timeout — we only need to confirm the API key check was skipped,
     // not wait for the full local Claude connection attempt to time out.
     const { stderr } = await runCLI({
@@ -104,7 +107,20 @@ describe('CLI: ANTHROPIC_API_KEY and --agent-provider flag', () => {
       AGHAST_LOCAL_CLAUDE: 'true',
       AGHAST_MOCK_AI: undefined,
     }, [fixtureRepo, '--config-dir', singleCheckConfigDir], { timeout: 5_000 });
-    assert.ok(!stderr.includes('ANTHROPIC_API_KEY environment variable is required'));
+    assert.ok(!stderr.includes('No Claude credentials found'));
+  });
+
+  it('detected local login skips ANTHROPIC_API_KEY requirement', async () => {
+    // No API key and AGHAST_LOCAL_CLAUDE unset: the provider auto-detects a logged-in
+    // local session (mocked here). The auth gate should pass — the run fails later at the
+    // real API call stage, but NOT with the credentials error.
+    const { stderr } = await runCLI({
+      ANTHROPIC_API_KEY: undefined,
+      AGHAST_LOCAL_CLAUDE: undefined,
+      AGHAST_MOCK_AI: undefined,
+      AGHAST_MOCK_LOCAL_LOGIN: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir], { timeout: 5_000 });
+    assert.ok(!stderr.includes('No Claude credentials found'));
   });
 
   it('unknown --agent-provider exits 1 with error message', async () => {
