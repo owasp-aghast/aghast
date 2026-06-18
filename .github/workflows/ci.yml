@@ -234,6 +234,43 @@ jobs:
             exit 1
           fi
 
+  # Aggregates the integration & regression suites into a single required check.
+  # Marked required in branch protection so auto-merge waits for these (slower,
+  # previously non-blocking) jobs instead of merging the moment lint/test/build
+  # pass — which left them still running and defeated the post-merge CI skip.
+  integration-gate:
+    runs-on: ubuntu-latest
+    needs: [check-ci-skip, semgrep-integration, openant-integration, opencode-integration, regression-test-semgrep]
+    if: always()
+    steps:
+      - name: Check integration & regression results
+        env:
+          CI_SKIP: ${{ needs.check-ci-skip.outputs.skip }}
+          SEMGREP_RESULT: ${{ needs.semgrep-integration.result }}
+          OPENANT_RESULT: ${{ needs.openant-integration.result }}
+          OPENCODE_RESULT: ${{ needs.opencode-integration.result }}
+          REGRESSION_RESULT: ${{ needs.regression-test-semgrep.result }}
+        run: |
+          if [ "$CI_SKIP" = "true" ]; then
+            echo "CI skipped — PR checks already passed"
+            exit 0
+          fi
+          status=0
+          for entry in \
+            "semgrep-integration:$SEMGREP_RESULT" \
+            "openant-integration:$OPENANT_RESULT" \
+            "opencode-integration:$OPENCODE_RESULT" \
+            "regression-test-semgrep:$REGRESSION_RESULT"; do
+            name="${entry%%:*}"
+            result="${entry#*:}"
+            # 'success' and 'skipped' are acceptable; 'failure'/'cancelled' are not
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::$name did not pass: $result"
+              status=1
+            fi
+          done
+          exit $status
+
   test-results:
     permissions:
       contents: read
