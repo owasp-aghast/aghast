@@ -71,30 +71,100 @@ export type QueryFn = (params: {
   options: Record<string, unknown>;
 }) => AsyncIterable<Record<string, unknown>>;
 
+const LOGIN_PROBE_TIMEOUT_MS = 8000; // accountInfo() round-trip cap; treat a hang as "not logged in"
+
+/** Probe whether a local Claude Code session is logged in, via the agent SDK's
+ * `accountInfo()` control request — the same streaming-input pattern as
+ * {@link listModelsViaAgentSdk}: spin up a query whose prompt never yields, issue one
+ * control request, then interrupt. Returns `false` on any error or timeout (treated as
+ * "not logged in"). Honours the `AGHAST_MOCK_LOCAL_LOGIN` test hook (`true`/`false`)
+ * so CLI integration tests stay hermetic without spawning the SDK. */
+async function probeLocalLogin(): Promise<boolean> {
+  const mock = process.env.AGHAST_MOCK_LOCAL_LOGIN;
+  if (mock === 'true') return true;
+  if (mock === 'false') return false;
+
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  let release: (() => void) | undefined;
+  const block = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // eslint-disable-next-line require-yield -- intentional: streaming-input prompt that never yields, kept alive by `block` so `accountInfo()` can run.
+  const prompt = (async function* (): AsyncGenerator<never, void, unknown> {
+    await block;
+    await new Promise<never>(() => {});
+  })();
+  const q = query({ prompt, options: {} });
+  try {
+    const info = await Promise.race([
+      q.accountInfo(),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), LOGIN_PROBE_TIMEOUT_MS)),
+    ]);
+    // We only probe when ANTHROPIC_API_KEY is unset, so any populated account/credential
+    // field indicates an authenticated local (OAuth) session.
+    return !!(info && (info.email || info.subscriptionType || info.tokenSource || info.apiKeySource || info.apiProvider));
+  } catch (err) {
+    logDebug(TAG, `Local login probe (accountInfo) failed, treating as not logged in: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  } finally {
+    release?.();
+    await Promise.race([
+      q.interrupt().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  }
+}
+
+/** Memoized local-login probe — one detection per process run. */
+let localLoginProbe: Promise<boolean> | undefined;
+function detectLocalLogin(): Promise<boolean> {
+  if (!localLoginProbe) {
+    localLoginProbe = probeLocalLogin();
+  }
+  return localLoginProbe;
+}
+
 export class ClaudeCodeProvider implements AgentProvider {
   private apiKey: string | undefined;
   private useLocalClaude: boolean = false;
   private model: string = DEFAULT_MODEL;
   private _queryFn: QueryFn | undefined;
-  constructor(options?: { _queryFn?: QueryFn }) {
+  private _detectLocalLogin: () => Promise<boolean>;
+  constructor(options?: { _queryFn?: QueryFn; _detectLocalLogin?: () => Promise<boolean> }) {
     this._queryFn = options?._queryFn;
+    this._detectLocalLogin = options?._detectLocalLogin ?? detectLocalLogin;
   }
 
-  checkPrerequisites(): void {
-    if (!process.env.ANTHROPIC_API_KEY && process.env.AGHAST_LOCAL_CLAUDE !== 'true') {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required');
-    }
+  async checkPrerequisites(): Promise<void> {
+    // Auth resolution order: explicit API key → forced local mode → detected local login.
+    if (process.env.ANTHROPIC_API_KEY) return;
+    if (process.env.AGHAST_LOCAL_CLAUDE === 'true') return;
+    if (await this._detectLocalLogin()) return;
+    throw new Error(
+      'No Claude credentials found. Set ANTHROPIC_API_KEY, or log in to a local Claude session (run `claude` and use /login).',
+    );
   }
 
   async initialize(config: ProviderConfig): Promise<void> {
-    this.useLocalClaude = process.env.AGHAST_LOCAL_CLAUDE === 'true';
     this.apiKey = config.apiKey ?? process.env.ANTHROPIC_API_KEY;
     // Model selection priority: config.model (from AGHAST_AI_MODEL env or runtime config) > DEFAULT_MODEL
     if (config.model) {
       this.model = config.model;
     }
+    // Local mode when no API key is available: forced via AGHAST_LOCAL_CLAUDE, otherwise
+    // auto-detected by probing the local session's login status (memoized, so this reuses
+    // any probe already run in checkPrerequisites).
+    if (this.apiKey) {
+      this.useLocalClaude = false;
+    } else if (process.env.AGHAST_LOCAL_CLAUDE === 'true') {
+      this.useLocalClaude = true;
+    } else {
+      this.useLocalClaude = await this._detectLocalLogin();
+    }
     if (!this.apiKey && !this.useLocalClaude) {
-      throw new Error('ANTHROPIC_API_KEY is required');
+      throw new Error(
+        'ANTHROPIC_API_KEY is required, or log in to a local Claude session (run `claude` and use /login).',
+      );
     }
     if (this.useLocalClaude) {
       logProgress(TAG, 'Using local Claude Code session for authentication');
@@ -102,6 +172,11 @@ export class ClaudeCodeProvider implements AgentProvider {
       logDebug(TAG, 'Using API key for authentication');
     }
     logDebug(TAG, `Provider initialized with model ${this.model}`);
+  }
+
+  /** True when authentication resolved to a local Claude session (no API key). */
+  isLocalMode(): boolean {
+    return this.useLocalClaude;
   }
 
   getModelName(): string {

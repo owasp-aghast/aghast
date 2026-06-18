@@ -40,7 +40,7 @@ Run `aghast scan --help` for the full list of options.
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | API key for Claude (required for AI-based checks with the `claude-code` provider) |
+| `ANTHROPIC_API_KEY` | API key for Claude. Used by the `claude-code` provider for AI-based checks; if unset, the provider falls back to a logged-in local Claude session |
 | `AGHAST_CONFIG_DIR` | Default config directory (CLI `--config-dir` takes precedence) |
 | `AGHAST_AI_MODEL` | AI model override (CLI `--model` takes precedence) |
 | `AGHAST_GENERIC_PROMPT` | Generic prompt template filename (CLI `--generic-prompt` takes precedence) |
@@ -59,7 +59,7 @@ aghast supports multiple agent providers via the `--agent-provider` flag or `age
 
 | Provider | `--agent-provider` | `--model` format | Prerequisites |
 |----------|--------------------|------------------|---------------|
-| Claude Code (default) | `claude-code` | Model name (e.g. `haiku`, `sonnet`) | `ANTHROPIC_API_KEY` env var |
+| Claude Code (default) | `claude-code` | Model name (e.g. `haiku`, `sonnet`) | `ANTHROPIC_API_KEY` env var, or a logged-in local Claude session |
 | OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/nemotron-3-super-free`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
 
 ### Using OpenCode

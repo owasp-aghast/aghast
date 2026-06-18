@@ -116,7 +116,8 @@ General options:
                              Warns at 80%, aborts at 100%
 
 Environment variables:
-  ANTHROPIC_API_KEY           API key for Claude (required for AI-based checks)
+  ANTHROPIC_API_KEY           API key for Claude. If unset, AI-based checks fall
+                              back to a logged-in local Claude session
   AGHAST_CONFIG_DIR           Default config directory (CLI --config-dir takes precedence)
   AGHAST_AI_MODEL             AI model override (CLI --model takes precedence)
   AGHAST_GENERIC_PROMPT       Generic prompt template filename (CLI --generic-prompt takes precedence)
@@ -601,7 +602,7 @@ export async function runScan(args: string[]): Promise<void> {
     // Validate provider-specific prerequisites (API keys, binaries, etc.)
     try {
       const tempProvider = createProviderByName(agentProviderName);
-      tempProvider.checkPrerequisites?.();
+      await tempProvider.checkPrerequisites?.();
     } catch (err) {
       console.error(formatError(ERROR_CODES.E3001, err instanceof Error ? err.message : String(err)));
       process.exit(1);
@@ -707,7 +708,9 @@ export async function runScan(args: string[]): Promise<void> {
       pricing,
       budgetLimits,
       scanHistory: scanHistoryForBudget,
-      isLocalClaude: process.env.AGHAST_LOCAL_CLAUDE === 'true',
+      // Prefer the provider's resolved auth mode (covers auto-detected local login);
+      // fall back to the env var for providers without the concept (e.g. mock).
+      isLocalClaude: provider?.isLocalMode?.() ?? (process.env.AGHAST_LOCAL_CLAUDE === 'true'),
     });
     const results = outcome.results;
 

@@ -613,3 +613,100 @@ describe('ClaudeCodeProvider: thinking blocks and tool_result handling', () => {
   });
 });
 
+describe('ClaudeCodeProvider: authentication resolution', () => {
+  /** Run `fn` with ANTHROPIC_API_KEY / AGHAST_LOCAL_CLAUDE set to the given values, restoring after. */
+  async function withAuthEnv(
+    env: { ANTHROPIC_API_KEY?: string; AGHAST_LOCAL_CLAUDE?: string },
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const saved = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      AGHAST_LOCAL_CLAUDE: process.env.AGHAST_LOCAL_CLAUDE,
+    };
+    const apply = (k: 'ANTHROPIC_API_KEY' | 'AGHAST_LOCAL_CLAUDE', v: string | undefined): void => {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    };
+    apply('ANTHROPIC_API_KEY', env.ANTHROPIC_API_KEY);
+    apply('AGHAST_LOCAL_CLAUDE', env.AGHAST_LOCAL_CLAUDE);
+    try {
+      await fn();
+    } finally {
+      apply('ANTHROPIC_API_KEY', saved.ANTHROPIC_API_KEY);
+      apply('AGHAST_LOCAL_CLAUDE', saved.AGHAST_LOCAL_CLAUDE);
+    }
+  }
+
+  it('checkPrerequisites passes when ANTHROPIC_API_KEY is set, without probing local login', async () => {
+    await withAuthEnv({ ANTHROPIC_API_KEY: 'test-key', AGHAST_LOCAL_CLAUDE: undefined }, async () => {
+      let probed = false;
+      const provider = new ClaudeCodeProvider({
+        _detectLocalLogin: async () => {
+          probed = true;
+          return false;
+        },
+      });
+      await provider.checkPrerequisites();
+      assert.equal(probed, false, 'should not probe local login when an API key is present');
+    });
+  });
+
+  it('checkPrerequisites passes when AGHAST_LOCAL_CLAUDE=true, without probing local login', async () => {
+    await withAuthEnv({ ANTHROPIC_API_KEY: undefined, AGHAST_LOCAL_CLAUDE: 'true' }, async () => {
+      let probed = false;
+      const provider = new ClaudeCodeProvider({
+        _detectLocalLogin: async () => {
+          probed = true;
+          return false;
+        },
+      });
+      await provider.checkPrerequisites();
+      assert.equal(probed, false, 'forced local mode should not probe');
+    });
+  });
+
+  it('checkPrerequisites passes when local login is detected (no key, not forced)', async () => {
+    await withAuthEnv({ ANTHROPIC_API_KEY: undefined, AGHAST_LOCAL_CLAUDE: undefined }, async () => {
+      const provider = new ClaudeCodeProvider({ _detectLocalLogin: async () => true });
+      await provider.checkPrerequisites();
+    });
+  });
+
+  it('checkPrerequisites throws when no key, not forced, and not logged in', async () => {
+    await withAuthEnv({ ANTHROPIC_API_KEY: undefined, AGHAST_LOCAL_CLAUDE: undefined }, async () => {
+      const provider = new ClaudeCodeProvider({ _detectLocalLogin: async () => false });
+      await assert.rejects(
+        () => provider.checkPrerequisites(),
+        /No Claude credentials|ANTHROPIC_API_KEY/,
+      );
+    });
+  });
+
+  it('initialize enters local mode (coveredBySubscription) when local login is detected', async () => {
+    await withAuthEnv({ ANTHROPIC_API_KEY: undefined, AGHAST_LOCAL_CLAUDE: undefined }, async () => {
+      const messages = [
+        assistantMsg('Analyzing...'),
+        {
+          type: 'result',
+          subtype: 'success',
+          result: '{"issues":[]}',
+          structured_output: { issues: [] },
+          total_cost_usd: 0.0500,
+          modelUsage: {
+            'claude-sonnet-4-20250514': { inputTokens: 1000, outputTokens: 200 },
+          },
+        },
+      ];
+      const provider = new ClaudeCodeProvider({
+        _queryFn: createFakeQueryFn(messages),
+        _detectLocalLogin: async () => true,
+      });
+      await provider.initialize({});
+
+      const result = await provider.executeCheck('test prompt', '/tmp/repo');
+      assert.ok(result.tokenUsage?.reportedCost, 'Should have reportedCost');
+      assert.equal(result.tokenUsage!.reportedCost!.coveredBySubscription, true);
+    });
+  });
+});
+

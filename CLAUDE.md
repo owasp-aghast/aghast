@@ -99,7 +99,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 
 ## Environment Variables
 
-- `ANTHROPIC_API_KEY` — Required for Claude Code agent provider (unless `AGHAST_LOCAL_CLAUDE=true`)
+- `ANTHROPIC_API_KEY` — API key for the Claude Code agent provider. When unset, the provider falls back to a logged-in local Claude session (auto-detected via the agent SDK's `accountInfo()`); the scan errors only if neither an API key nor a logged-in local session is available
 - `AGHAST_CONFIG_DIR` — Default config directory (CLI `--config-dir` takes precedence)
 - `AGHAST_AI_MODEL` — AI model override (CLI `--model` takes precedence)
 - `AGHAST_GENERIC_PROMPT` — Generic prompt template filename (CLI `--generic-prompt` takes precedence)
@@ -107,13 +107,14 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_LOG_LEVEL` — Console log level: `error`, `warn`, `info`, `debug`, `trace` (CLI `--log-level` takes precedence)
 - `AGHAST_LOG_FILE` — Log file path (CLI `--log-file` takes precedence)
 - `AGHAST_LOG_TYPE` — Log file handler type (CLI `--log-type` takes precedence, default: `file`)
-- `AGHAST_LOCAL_CLAUDE` — Set to `true` to use local Claude instead of API
+- `AGHAST_LOCAL_CLAUDE` — Set to `true` to force local Claude mode, skipping both the API key and the login-detection probe (escape hatch / override)
 - `AGHAST_MOCK_AI` — Enables mock agent provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
 - `AGHAST_MOCK_SEMGREP` — Path to SARIF file for mock Semgrep output
 - `AGHAST_OPENANT_DATASET` — Path to a pre-generated OpenAnt dataset JSON file (skips invoking `openant parse`)
 - `AGHAST_DIFF_REF` — Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence)
 - `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
 - `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
+- `AGHAST_MOCK_LOCAL_LOGIN` — Test hook for the Claude Code provider's local-login probe: `true` reports a logged-in session, `false` reports not-logged-in, both without spawning the agent SDK (keeps CLI auth tests hermetic)
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
 - `NO_COLOR` — Set to `1` to disable colored CLI output (standard; respected automatically by `picocolors`)
 
