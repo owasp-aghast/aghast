@@ -214,7 +214,7 @@ If the check sets `checkTarget.openant` (a metadata filter over OpenAnt units), 
 The analysis mode determines what the AI does with each discovered target:
 
 - **Custom** (default): you write your own instructions in a markdown file, tailored to the specific question you want answered. This is the most flexible option.
-- **False-positive validation**: the AI evaluates each target as a potential false positive and filters out findings that are not actually vulnerable. Works with Semgrep and SARIF discovery (and with those paired with diff filtering).
+- **False-positive validation**: the AI evaluates each target as a potential false positive. Confirmed findings (true positives) become issues; dismissed findings (false positives) are filtered out of `issues` but retained — along with the AI's rationale — in a top-level `validations` array, so the dismissal and its reasoning are not lost. In SARIF output, dismissals appear as `pass` results with a suppression whose `justification` is the rationale. Works with Semgrep and SARIF discovery (and with those paired with diff filtering).
 - **General vulnerability discovery**: the AI scans each target for a broad range of security vulnerabilities. Works with all discovery methods.
 
 Any discovery method can be paired with any compatible analysis mode. For example, you could use Semgrep discovery with `false-positive-validation` to validate Semgrep findings, or with `custom` instructions to perform deeper analysis on each match.

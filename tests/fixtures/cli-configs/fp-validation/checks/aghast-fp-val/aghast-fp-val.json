@@ -1,0 +1,12 @@
+{
+  "id": "aghast-fp-val",
+  "name": "False Positive Validation Check",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "sarif",
+    "sarifFile": "./sast-3-targets.sarif",
+    "analysisMode": "false-positive-validation"
+  }
+}

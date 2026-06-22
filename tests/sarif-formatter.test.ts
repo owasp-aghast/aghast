@@ -163,6 +163,53 @@ describe('SarifFormatter', () => {
     const sarif = JSON.parse(formatter.format(results));
     assert.equal(sarif.runs[0].results[0].codeFlows, undefined);
   });
+
+  it('false-positive validations become pass results with a suppression', () => {
+    const results = makeResults({
+      checks: [{ checkId: 'fp', checkName: 'FP Check', status: 'PASS', issuesFound: 0, executionTime: 10 }],
+      validations: [
+        {
+          checkId: 'fp', checkName: 'FP Check', verdict: 'false-positive',
+          target: { file: 'src/app.ts', startLine: 40, endLine: 45, message: 'Possible SQLi', snippet: 'q = `...`' },
+          rationale: 'Value is an allowlisted column name, never user input.',
+        },
+      ],
+    });
+    const sarif = JSON.parse(formatter.format(results));
+    assert.equal(sarif.runs[0].results.length, 1);
+    const result = sarif.runs[0].results[0];
+
+    assert.equal(result.kind, 'pass');
+    assert.equal(result.ruleId, 'fp');
+    assert.equal(result.message.text, 'Possible SQLi');
+    assert.equal(result.locations[0].physicalLocation.artifactLocation.uri, 'src/app.ts');
+    assert.equal(result.locations[0].physicalLocation.region.snippet.text, 'q = `...`');
+    assert.equal(result.suppressions.length, 1);
+    assert.equal(result.suppressions[0].kind, 'external');
+    assert.equal(result.suppressions[0].justification, 'Value is an allowlisted column name, never user input.');
+  });
+
+  it('true-positive validations are not duplicated as pass results (covered by issues)', () => {
+    const results = makeResults({
+      checks: [{ checkId: 'fp', checkName: 'FP Check', status: 'FAIL', issuesFound: 1, executionTime: 10 }],
+      issues: [{
+        checkId: 'fp', checkName: 'FP Check',
+        file: 'src/app.ts', startLine: 40, endLine: 45, description: 'Confirmed SQLi',
+      }],
+      validations: [
+        {
+          checkId: 'fp', checkName: 'FP Check', verdict: 'true-positive',
+          target: { file: 'src/app.ts', startLine: 40, endLine: 45, message: 'Possible SQLi' },
+          rationale: 'Tainted input reaches the sink.', issueIndex: 0,
+        },
+      ],
+    });
+    const sarif = JSON.parse(formatter.format(results));
+    // Only the issue-derived result; the TP validation adds nothing extra.
+    assert.equal(sarif.runs[0].results.length, 1);
+    assert.equal(sarif.runs[0].results[0].kind, undefined);
+    assert.equal(sarif.runs[0].results[0].message.text, 'Confirmed SQLi');
+  });
 });
 
 describe('mapSeverityToLevel', () => {

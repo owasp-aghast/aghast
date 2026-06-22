@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-fp-val",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

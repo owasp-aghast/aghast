@@ -795,6 +795,168 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 });
 
+// --- runMultiScan tests (false-positive-validation across checks) ---
+
+function makeFpValidationCheck(
+  id: string,
+  name: string,
+): { check: SecurityCheck; details: CheckDetails } {
+  return {
+    check: {
+      id,
+      name,
+      repositories: [],
+      instructionsFile: 'unused.md',
+      checkTarget: {
+        type: 'targeted',
+        discovery: 'semgrep',
+        rules: 'unused-in-mock.yaml',
+        analysisMode: 'false-positive-validation',
+      },
+    },
+    details: {
+      id,
+      name,
+      overview: 'FP validation.',
+      content: `### ${name}\n\n#### Overview\nFP validation.\n`,
+    },
+  };
+}
+
+describe('runMultiScan (false-positive-validation)', () => {
+  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+
+  afterEach(() => {
+    if (origMockSemgrep === undefined) {
+      delete process.env.AGHAST_MOCK_SEMGREP;
+    } else {
+      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+    }
+  });
+
+  it('offsets each validation issueIndex into the global issues array across checks', async () => {
+    // Both checks run against the same 3 mock-Semgrep targets. Check A confirms
+    // targets 0 and 2 (→ global issues 0,1); check B confirms only target 1
+    // (→ global issue 2). The TP record from check B must have its issueIndex
+    // offset by check A's issue count, i.e. point at index 2, not 0.
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+
+    const tp = (desc: string): CheckResponse => ({
+      issues: [{ file: 'src/example.ts', startLine: 4, endLine: 4, description: desc }],
+      verdict: 'true-positive',
+      rationale: 'Tainted input flows unsanitized into the sink.',
+    });
+    const fp = (): CheckResponse => ({
+      issues: [],
+      verdict: 'false-positive',
+      rationale: 'The value is coerced to an integer before use.',
+    });
+
+    const provider = new MockAgentProvider();
+    provider.setResponseQueue([
+      // Check A
+      tp('A target0'),
+      fp(),
+      tp('A target2'),
+      // Check B
+      fp(),
+      tp('B target1'),
+      fp(),
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeFpValidationCheck('fp-check-a', 'FP Check A'),
+        makeFpValidationCheck('fp-check-b', 'FP Check B'),
+      ],
+      agentProvider: provider,
+    });
+
+    // Global issues: A-target0, A-target2, B-target1
+    assert.equal(results.issues.length, 3);
+    assert.equal(results.issues[0].checkId, 'fp-check-a');
+    assert.equal(results.issues[1].checkId, 'fp-check-a');
+    assert.equal(results.issues[2].checkId, 'fp-check-b');
+
+    const validations = results.validations!;
+    assert.equal(validations.length, 6);
+
+    // Every true-positive record's issueIndex must resolve to an issue from the
+    // same check — proving the offset is applied correctly per check.
+    for (const v of validations) {
+      if (v.verdict === 'true-positive') {
+        assert.equal(typeof v.issueIndex, 'number');
+        assert.equal(results.issues[v.issueIndex!].checkId, v.checkId);
+      } else {
+        assert.equal(v.issueIndex, undefined);
+      }
+    }
+
+    // Specifically, check B's confirmed target links to global index 2, not 0.
+    const bTruePositive = validations.find(
+      (v) => v.checkId === 'fp-check-b' && v.verdict === 'true-positive',
+    )!;
+    assert.equal(bTruePositive.issueIndex, 2);
+
+    // Per-check validation counts stay attributed to the right check.
+    assert.deepEqual(results.checks[0].validationsCount, { truePositive: 2, falsePositive: 1 });
+    assert.deepEqual(results.checks[1].validationsCount, { truePositive: 1, falsePositive: 2 });
+  });
+
+  it('records a true positive when the AI verdict contradicts returned issues', async () => {
+    // AI returns issues but labels the target a false positive. Issues are the
+    // source of truth, so the record must be filed as a true positive and the
+    // issue must still appear in results.issues.
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+
+    const provider = new MockAgentProvider();
+    provider.setResponseQueue([
+      {
+        issues: [{ file: 'src/example.ts', startLine: 4, endLine: 4, description: 'Real issue' }],
+        verdict: 'false-positive',
+        rationale: 'Contradictory: claims false positive but reports an issue.',
+      },
+      { issues: [], verdict: 'false-positive', rationale: 'Genuinely safe.' },
+      { issues: [], verdict: 'false-positive', rationale: 'Genuinely safe.' },
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeFpValidationCheck('fp-check', 'FP Check')],
+      agentProvider: provider,
+    });
+
+    assert.equal(results.issues.length, 1);
+    const validations = results.validations!;
+    const confirmed = validations.filter((v) => v.verdict === 'true-positive');
+    assert.equal(confirmed.length, 1);
+    assert.equal(confirmed[0].issueIndex, 0);
+    assert.equal(results.checks[0].validationsCount!.truePositive, 1);
+    assert.equal(results.checks[0].validationsCount!.falsePositive, 2);
+  });
+
+  it('substitutes a sentinel rationale when the AI omits one', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+
+    const provider = new MockAgentProvider();
+    provider.setResponseQueue([
+      { issues: [], verdict: 'false-positive' }, // no rationale
+      { issues: [], verdict: 'false-positive', rationale: 'Safe.' },
+      { issues: [], verdict: 'false-positive', rationale: 'Safe.' },
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeFpValidationCheck('fp-check', 'FP Check')],
+      agentProvider: provider,
+    });
+
+    const missing = results.validations!.find((v) => v.rationale === '(no rationale provided)');
+    assert.ok(missing, 'a record with the sentinel rationale should be present');
+  });
+});
+
 // --- runMultiScan tests (concurrency) ---
 
 /**

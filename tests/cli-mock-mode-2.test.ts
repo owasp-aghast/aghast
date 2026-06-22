@@ -28,6 +28,9 @@ import {
   cli3TargetsSarif,
   emptyResultsSarif,
   mixedDiscoveryConfigDir,
+  fpValidationConfigDir,
+  fpValidationFalsePositiveFixture,
+  fpValidationTruePositiveFixture,
   createScopedHelpers,
 } from './cli-test-helpers.js';
 
@@ -662,6 +665,100 @@ describe('CLI mock mode: sarif discovery checks', () => {
     for (const issue of issues) {
       assert.equal(issue.severity, 'high');
       assert.equal(issue.confidence, 'medium');
+    }
+  });
+});
+
+// ─── false-positive-validation mode: verdict + rationale ─────────────────────
+
+describe('CLI mock mode: false-positive-validation rationale', () => {
+  afterEach(cleanupOutput);
+
+  it('FALSE POSITIVE: dismissals are retained as validation records with rationale', async () => {
+    // 3 SARIF findings, AI returns {"issues":[], "verdict":"false-positive", "rationale": ...}
+    // for every one → PASS, no issues, but a validations array recording the dismissals.
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: fpValidationFalsePositiveFixture },
+      [fixtureRepo, '--config-dir', fpValidationConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const issues = results.issues as Array<Record<string, unknown>>;
+    const validations = results.validations as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].status, 'PASS');
+    assert.equal(checks[0].targetsAnalyzed, 3);
+    assert.equal(issues.length, 0, 'False positives produce no issues');
+
+    assert.ok(Array.isArray(validations), 'validations array should be present');
+    assert.equal(validations.length, 3, 'One validation record per dismissed finding');
+    for (const v of validations) {
+      assert.equal(v.verdict, 'false-positive');
+      assert.equal(v.checkId, 'aghast-fp-val');
+      assert.match(v.rationale as string, /coerced to an integer/);
+      assert.equal(v.issueIndex, undefined, 'False positives have no issueIndex');
+      const target = v.target as Record<string, unknown>;
+      assert.equal(target.file, 'src/example.ts');
+      assert.ok(typeof target.startLine === 'number');
+    }
+
+    // Per-check verdict counts surface in the summary.
+    const counts = checks[0].validationsCount as Record<string, number>;
+    assert.deepEqual(counts, { truePositive: 0, falsePositive: 3 });
+  });
+
+  it('TRUE POSITIVE: confirmed findings produce issues and linked validation records', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: fpValidationTruePositiveFixture },
+      [fixtureRepo, '--config-dir', fpValidationConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const issues = results.issues as Array<Record<string, unknown>>;
+    const validations = results.validations as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].status, 'FAIL');
+    assert.equal(issues.length, 3, 'One issue per confirmed finding');
+    assert.equal(validations.length, 3);
+
+    for (const v of validations) {
+      assert.equal(v.verdict, 'true-positive');
+      assert.match(v.rationale as string, /flows unsanitized/);
+      // issueIndex links back to the confirmed issue in results.issues.
+      const idx = v.issueIndex as number;
+      assert.equal(typeof idx, 'number');
+      assert.ok(issues[idx], 'issueIndex points at a real issue');
+      assert.equal((issues[idx] as Record<string, unknown>).checkId, 'aghast-fp-val');
+    }
+
+    const counts = checks[0].validationsCount as Record<string, number>;
+    assert.deepEqual(counts, { truePositive: 3, falsePositive: 0 });
+  });
+
+  it('SARIF output: false positives become pass results with a suppression justification', async () => {
+    const { exitCode } = await runCLISarif(
+      { AGHAST_MOCK_AI: fpValidationFalsePositiveFixture },
+      [fixtureRepo, '--config-dir', fpValidationConfigDir, '--output-format', 'sarif'],
+    );
+    assert.equal(exitCode, 0);
+
+    const raw = await readFile(sarifOutputFile, 'utf-8');
+    const sarif = JSON.parse(raw) as Record<string, unknown>;
+    const runs = sarif.runs as Array<Record<string, unknown>>;
+    const sarifResults = runs[0].results as Array<Record<string, unknown>>;
+
+    assert.equal(sarifResults.length, 3, 'One pass result per dismissed finding');
+    for (const r of sarifResults) {
+      assert.equal(r.kind, 'pass');
+      assert.equal(r.ruleId, 'aghast-fp-val');
+      const suppressions = r.suppressions as Array<Record<string, unknown>>;
+      assert.equal(suppressions.length, 1);
+      assert.equal(suppressions[0].kind, 'external');
+      assert.match(suppressions[0].justification as string, /coerced to an integer/);
     }
   });
 });

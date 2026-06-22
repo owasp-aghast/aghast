@@ -68,6 +68,7 @@ export const unknownDiscoveryConfigDir = resolve(testDir, 'fixtures', 'cli-confi
 export const semgrepDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'semgrep-diff-filter');
 export const sarifDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-diff-filter');
 export const openantDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'openant-diff-filter');
+export const fpValidationConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'fp-validation');
 
 // SARIF fixtures
 export const cli3TargetsSarif = resolve(testDir, 'fixtures', 'sarif', 'cli-3-targets.sarif');
@@ -80,6 +81,8 @@ export const multiIssueFixture = resolve(testDir, 'fixtures', 'ai-responses', 'm
 export const malformedFixture = resolve(testDir, 'fixtures', 'ai-responses', 'malformed-response.txt');
 export const missingFieldsFixture = resolve(testDir, 'fixtures', 'ai-responses', 'missing-fields-response.json');
 export const dataFlowFixture = resolve(testDir, 'fixtures', 'ai-responses', 'fail-response-with-dataflow.json');
+export const fpValidationFalsePositiveFixture = resolve(testDir, 'fixtures', 'ai-responses', 'fp-validation-false-positive.json');
+export const fpValidationTruePositiveFixture = resolve(testDir, 'fixtures', 'ai-responses', 'fp-validation-true-positive.json');
 
 export interface CLIResult {
   stdout: string;
