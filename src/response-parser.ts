@@ -125,6 +125,12 @@ export function parseAgentResponse(raw: string): CheckResponse | undefined {
   if (typeof obj.analysisNotes === 'string') {
     response.analysisNotes = obj.analysisNotes;
   }
+  if (obj.verdict === 'true-positive' || obj.verdict === 'false-positive') {
+    response.verdict = obj.verdict;
+  }
+  if (typeof obj.rationale === 'string') {
+    response.rationale = obj.rationale;
+  }
 
   return response;
 }

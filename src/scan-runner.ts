@@ -35,6 +35,7 @@ import {
   type ScanResults,
   type ScanSummary,
   type TokenUsage,
+  type ValidationRecord,
 } from './types.js';
 import { calculateCost, type PricingConfig, type CostBreakdown } from './cost-calculator.js';
 import { checkBudget, BudgetExceededError, type BudgetLimits } from './budget.js';
@@ -402,6 +403,12 @@ function normalizeFilePath(filePath: string, repositoryPath: string): string {
 interface CheckExecutionResult {
   summary: CheckExecutionSummary;
   issues: SecurityIssue[];
+  /**
+   * Validation records (false-positive-validation mode only). The issueIndex
+   * on each record is local to this check's `issues` array; runMultiScan
+   * offsets it into the global ScanResults.issues array during aggregation.
+   */
+  validations?: ValidationRecord[];
 }
 
 /**
@@ -773,7 +780,15 @@ async function executeTargetedCheck(
     logProgressSummary();
     const progressInterval = setInterval(logProgressSummary, PROGRESS_INTERVAL_MS);
 
-    let targetResults: { issues: SecurityIssue[]; error: boolean; flagged: boolean; tokenUsage: TokenUsage | undefined }[];
+    let targetResults: {
+      issues: SecurityIssue[];
+      error: boolean;
+      flagged: boolean;
+      tokenUsage: TokenUsage | undefined;
+      target: DiscoveredTarget;
+      verdict?: 'true-positive' | 'false-positive';
+      rationale?: string;
+    }[];
     try {
     targetResults = await mapWithConcurrency(
       targets,
@@ -820,7 +835,7 @@ async function executeTargetedCheck(
 
           if (!parsed) {
             logDebug(TAG, `${target.label} Returned malformed response`);
-            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: agentResponse.tokenUsage };
+            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: agentResponse.tokenUsage, target };
           }
 
           // Apply optional per-target issue cap (checkTarget.maxIssuesPerTarget).
@@ -839,7 +854,15 @@ async function executeTargetedCheck(
               enrichIssue(aiIssue, checkId, checkName, repositoryPath, checkMetadata),
             ),
           );
-          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: agentResponse.tokenUsage };
+          return {
+            issues,
+            error: false,
+            flagged: parsed.flagged === true,
+            tokenUsage: agentResponse.tokenUsage,
+            target,
+            verdict: parsed.verdict,
+            rationale: parsed.rationale,
+          };
         } catch (err) {
           // Fatal errors and budget aborts: signal abort and re-throw to stop other workers
           if (err instanceof FatalProviderError || err instanceof BudgetExceededError) {
@@ -849,7 +872,7 @@ async function executeTargetedCheck(
           }
           const errorMsg = err instanceof Error ? err.message : String(err);
           logDebug(TAG, `${target.label} Error: ${errorMsg}`);
-          return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined };
+          return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined, target };
         } finally {
           inProgressCount--;
           completedCount++;
@@ -863,15 +886,75 @@ async function executeTargetedCheck(
     }
 
     // 7. Aggregate results
+    const isFpValidation = checkTarget.analysisMode === 'false-positive-validation';
     const allIssues: SecurityIssue[] = [];
+    const validations: ValidationRecord[] = [];
     let hasErrors = false;
     let hasFlagged = false;
     const targetTokenUsages: (TokenUsage | undefined)[] = [];
     for (const result of targetResults) {
+      // Index of this target's first issue within allIssues (used to link a
+      // true-positive validation record to its confirmed issue).
+      const issueBaseIndex = allIssues.length;
       allIssues.push(...result.issues);
       if (result.error) hasErrors = true;
       if (result.flagged) hasFlagged = true;
       targetTokenUsages.push(result.tokenUsage);
+
+      // In false-positive-validation mode, record the verdict + rationale for
+      // every successfully analyzed finding — including false positives, which
+      // would otherwise leave no trace in the output. Errored targets are
+      // skipped (the check already reports ERROR status).
+      if (isFpValidation && !result.error) {
+        // The presence of confirmed issues is the source of truth for the
+        // verdict: a target that produced issues is a true positive, one that
+        // didn't is a false positive. This keeps the record consistent with
+        // ScanResults.issues — we never file a finding as a false positive while
+        // its issue still appears in the report. The AI's explicit `verdict`,
+        // when present, is a cross-check: a mismatch is logged but the
+        // issue-derived verdict wins.
+        const hasIssues = result.issues.length > 0;
+        const verdict: 'true-positive' | 'false-positive' = hasIssues
+          ? 'true-positive'
+          : 'false-positive';
+        if (result.verdict && result.verdict !== verdict) {
+          logWarn(
+            TAG,
+            `${result.target.file}:${result.target.startLine} AI reported verdict "${result.verdict}" but ${hasIssues ? 'returned confirmed issues' : 'returned no issues'}; recording as "${verdict}"`,
+          );
+        }
+        // For false positives the rationale is the only record of the analysis,
+        // so a missing one is worse than a visibly absent one — warn and store a
+        // sentinel rather than an empty string that implies reasoning was given.
+        let rationale = result.rationale;
+        if (!rationale) {
+          logWarn(
+            TAG,
+            `${result.target.file}:${result.target.startLine} validation verdict "${verdict}" has no rationale; the AI omitted it`,
+          );
+          rationale = '(no rationale provided)';
+        }
+        const record: ValidationRecord = {
+          checkId,
+          checkName,
+          verdict,
+          target: {
+            file: result.target.file,
+            startLine: result.target.startLine,
+            endLine: result.target.endLine,
+            message: result.target.message ?? '',
+            ...(result.target.snippet ? { snippet: result.target.snippet } : {}),
+          },
+          rationale,
+        };
+        // A target may yield multiple confirmed issues; they are pushed
+        // consecutively starting at issueBaseIndex, so issueIndex points at the
+        // first. See the ValidationRecord.issueIndex docs.
+        if (verdict === 'true-positive') {
+          record.issueIndex = issueBaseIndex;
+        }
+        validations.push(record);
+      }
     }
 
     // 8. Determine status: FAIL > FLAG > ERROR > PASS
@@ -889,6 +972,8 @@ async function executeTargetedCheck(
 
     logProgress(TAG, `Result: ${status} (${allIssues.length} issues, ${targets.length} targets)`);
 
+    const truePositiveCount = validations.filter((v) => v.verdict === 'true-positive').length;
+
     return {
       summary: {
         checkId,
@@ -898,8 +983,17 @@ async function executeTargetedCheck(
         executionTime,
         targetsAnalyzed: targets.length,
         tokenUsage: sumTokenUsage(targetTokenUsages),
+        ...(isFpValidation
+          ? {
+              validationsCount: {
+                truePositive: truePositiveCount,
+                falsePositive: validations.length - truePositiveCount,
+              },
+            }
+          : {}),
       },
       issues: allIssues,
+      ...(validations.length > 0 ? { validations } : {}),
     };
   } catch (err) {
     // Fatal errors and budget aborts must propagate up to stop the scan
@@ -1101,6 +1195,7 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
 
   const allCheckSummaries: CheckExecutionSummary[] = [];
   const allIssues: SecurityIssue[] = [];
+  const allValidations: ValidationRecord[] = [];
   let budgetAborted = false;
   let budgetAbortReason: string | undefined;
 
@@ -1124,7 +1219,7 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
     if (check.model) modelsUsed.add(check.model);
 
     try {
-      const { summary: checkSummary, issues } = await executeSingleCheck(
+      const { summary: checkSummary, issues, validations } = await executeSingleCheck(
         check,
         details.name,
         details.content,
@@ -1141,6 +1236,16 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
       );
 
       allCheckSummaries.push(checkSummary);
+      // Offset each validation's check-local issueIndex into the global issues
+      // array before appending this check's issues.
+      if (validations && validations.length > 0) {
+        const issuesOffset = allIssues.length;
+        for (const v of validations) {
+          allValidations.push(
+            v.issueIndex !== undefined ? { ...v, issueIndex: v.issueIndex + issuesOffset } : v,
+          );
+        }
+      }
       allIssues.push(...issues);
     } catch (err) {
       if (err instanceof BudgetExceededError) {
@@ -1229,6 +1334,7 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
     version,
     repository: repositoryInfo,
     issues: allIssues,
+    ...(allValidations.length > 0 ? { validations: allValidations } : {}),
     checks: allCheckSummaries,
     summary,
     executionTime,

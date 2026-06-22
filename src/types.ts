@@ -159,6 +159,44 @@ export interface CheckResponse {
   flagged?: boolean;
   summary?: string;
   analysisNotes?: string;
+  /**
+   * Validation verdict for false-positive-validation mode. Set by the AI when
+   * validating an externally reported finding. When absent, the verdict is
+   * inferred from whether any issues were returned.
+   */
+  verdict?: 'true-positive' | 'false-positive';
+  /**
+   * Human-readable rationale for the verdict — especially valuable for false
+   * positives, which would otherwise produce no output at all.
+   */
+  rationale?: string;
+}
+
+// --- Validation Record (false-positive-validation mode) ---
+
+/**
+ * The outcome of validating a single externally reported finding in
+ * false-positive-validation mode. Captures the verdict and rationale for both
+ * confirmed (true-positive) and dismissed (false-positive) findings, so the
+ * dismissals are retained rather than silently dropped.
+ */
+export interface ValidationRecord {
+  checkId: string;
+  checkName: string;
+  verdict: 'true-positive' | 'false-positive';
+  /** The externally reported finding that was validated. */
+  target: CheckTarget;
+  /** Why the AI reached this verdict. */
+  rationale: string;
+  /**
+   * For true-positive verdicts, the index into ScanResults.issues of the
+   * first confirmed issue for this target. A single target may map to multiple
+   * confirmed issues, which are stored consecutively starting at this index;
+   * the count is not tracked, so consumers needing every linked issue should
+   * match on the target rather than assuming a one-to-one mapping. Omitted for
+   * false positives.
+   */
+  issueIndex?: number;
 }
 
 /** Raw issue as returned by the AI (before enrichment). */
@@ -189,6 +227,11 @@ export interface CheckExecutionSummary {
    */
   rawAiResponse?: string;
   tokenUsage?: TokenUsage;
+  /**
+   * Count of validation verdicts for false-positive-validation checks.
+   * Present only when the check ran in that mode.
+   */
+  validationsCount?: { truePositive: number; falsePositive: number };
 }
 
 // --- A.5 Complete Scan Results ---
@@ -199,6 +242,11 @@ export interface ScanResults {
   version: string;
   repository: RepositoryInfo;
   issues: SecurityIssue[];
+  /**
+   * Validation records from false-positive-validation checks (both confirmed
+   * and dismissed findings). Present only when at least one such check ran.
+   */
+  validations?: ValidationRecord[];
   checks: CheckExecutionSummary[];
   summary: ScanSummary;
   executionTime: number;

@@ -1,0 +1,12 @@
+{
+  "verdict": "true-positive",
+  "rationale": "Request-controlled id flows unsanitized into the concatenated SQL string.",
+  "issues": [
+    {
+      "file": "src/example.ts",
+      "startLine": 3,
+      "endLine": 5,
+      "description": "SQL injection: user input interpolated directly into query string."
+    }
+  ]
+}

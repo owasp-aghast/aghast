@@ -4,7 +4,7 @@
  * code scanning UIs (e.g. GitHub Code Scanning) and SARIF viewers.
  */
 
-import type { ScanResults, SecurityIssue, DataFlowStep } from '../types.js';
+import type { ScanResults, SecurityIssue, DataFlowStep, ValidationRecord } from '../types.js';
 import type { OutputFormatter } from './types.js';
 
 /** Maps aghast severity to SARIF result level. */
@@ -50,10 +50,16 @@ interface SarifCodeFlow {
   }>;
 }
 
+interface SarifSuppression {
+  kind: 'inSource' | 'external';
+  justification?: string;
+}
+
 interface SarifResult {
   ruleId: string;
   message: { text: string };
-  level: 'error' | 'warning' | 'note';
+  level?: 'error' | 'warning' | 'note';
+  kind?: 'fail' | 'pass' | 'open' | 'review' | 'notApplicable' | 'informational';
   locations: Array<{
     physicalLocation: {
       artifactLocation: { uri: string };
@@ -61,6 +67,7 @@ interface SarifResult {
     };
   }>;
   codeFlows?: SarifCodeFlow[];
+  suppressions?: SarifSuppression[];
 }
 
 interface SarifLog {
@@ -85,6 +92,12 @@ export class SarifFormatter implements OutputFormatter {
   format(results: ScanResults): string {
     const rules = this.buildRules(results);
     const sarifResults = this.buildResults(results.issues);
+    // False-positive-validation dismissals become SARIF "pass" results with a
+    // suppression carrying the rationale. True positives are already covered by
+    // results.issues above, so only false positives are emitted here.
+    if (results.validations) {
+      sarifResults.push(...this.buildValidationResults(results.validations));
+    }
 
     const sarif: SarifLog = {
       $schema: 'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json',
@@ -150,6 +163,42 @@ export class SarifFormatter implements OutputFormatter {
 
       return result;
     });
+  }
+
+  private buildValidationResults(validations: ValidationRecord[]): SarifResult[] {
+    return validations
+      .filter((v) => v.verdict === 'false-positive')
+      .map((v) => {
+        const region: SarifRegion = {
+          startLine: v.target.startLine,
+          endLine: v.target.endLine,
+        };
+        if (v.target.snippet) {
+          region.snippet = { text: v.target.snippet };
+        }
+        // No `level` is set: per SARIF 2.1.0 `level` is meaningless for
+        // `kind: "pass"` results, so it is intentionally omitted here (unlike
+        // regular issue results, which always carry a severity-derived level).
+        return {
+          ruleId: v.checkId,
+          kind: 'pass',
+          message: { text: v.target.message || 'Finding validated as a false positive' },
+          locations: [
+            {
+              physicalLocation: {
+                artifactLocation: { uri: v.target.file },
+                region,
+              },
+            },
+          ],
+          suppressions: [
+            {
+              kind: 'external',
+              justification: v.rationale,
+            },
+          ],
+        } satisfies SarifResult;
+      });
   }
 
   private buildCodeFlow(steps: DataFlowStep[]): SarifCodeFlow {

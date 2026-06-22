@@ -1,0 +1,5 @@
+{
+  "verdict": "false-positive",
+  "rationale": "The interpolated id is coerced to an integer by the caller before reaching this query, so no injection is possible.",
+  "issues": []
+}

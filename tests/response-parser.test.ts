@@ -154,6 +154,43 @@ describe('parseAgentResponse', () => {
     assert.equal(result.analysisNotes, undefined);
   });
 
+  it('parses false-positive verdict and rationale on empty issues', () => {
+    const raw = JSON.stringify({
+      issues: [],
+      verdict: 'false-positive',
+      rationale: 'Input is validated upstream.',
+    });
+    const result = parseAgentResponse(raw);
+    assert.ok(result);
+    assert.equal(result.verdict, 'false-positive');
+    assert.equal(result.rationale, 'Input is validated upstream.');
+  });
+
+  it('parses true-positive verdict alongside issues', () => {
+    const raw = JSON.stringify({
+      issues: [{ file: 'a.ts', startLine: 1, endLine: 5, description: 'sqli' }],
+      verdict: 'true-positive',
+      rationale: 'Tainted input reaches the sink.',
+    });
+    const result = parseAgentResponse(raw);
+    assert.ok(result);
+    assert.equal(result.verdict, 'true-positive');
+    assert.equal(result.rationale, 'Tainted input reaches the sink.');
+    assert.equal(result.issues.length, 1);
+  });
+
+  it('ignores an unrecognized verdict value and non-string rationale', () => {
+    const raw = JSON.stringify({
+      issues: [],
+      verdict: 'maybe',
+      rationale: { nested: true },
+    });
+    const result = parseAgentResponse(raw);
+    assert.ok(result);
+    assert.equal(result.verdict, undefined);
+    assert.equal(result.rationale, undefined);
+  });
+
   it('skips non-object items in issues array', () => {
     const raw = JSON.stringify({
       issues: ['string item', null, 42, { file: 'a.ts', startLine: 1, endLine: 5, description: 'ok' }],
