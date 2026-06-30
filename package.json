@@ -39,7 +39,7 @@
   "packageManager": "npm@10.9.2",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.5.0",
+    "@types/node": "^26.0.0",
     "@types/picomatch": "^4.0.2",
     "eslint": "^10.0.3",
     "fast-check": "^4.6.0",
