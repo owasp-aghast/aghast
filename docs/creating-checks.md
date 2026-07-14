@@ -23,12 +23,12 @@ Scaffolds a new security check interactively. Any values not provided via flags 
 | `--id <id>` | Check ID (auto-prefixed with `aghast-` if needed) |
 | `--name <name>` | Human-readable check name |
 | `--check-type <type>` | `repository` (default), `targeted`, or `static` |
-| `--discovery <method>` | Discovery method: `semgrep`, `sarif`, or `openant` (required for `targeted` and `static` types) |
+| `--discovery <method>` | Discovery method: `semgrep`, `opengrep`, `sarif`, or `openant` (required for `targeted` and `static` types; `sarif` and `openant` are targeted-only) |
 | `--analysis-mode <mode>` | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery` |
 | `--severity <level>` | `critical`, `high`, `medium`, `low`, or `informational` |
 | `--confidence <level>` | `high`, `medium`, or `low` |
 
-Run `aghast new-check --help` for the full list of flags including `--check-overview`, `--check-items`, `--pass-condition`, `--fail-condition`, `--flag-condition`, `--repositories`, `--semgrep-rules`, `--max-targets`, and `--language`.
+Run `aghast new-check --help` for the full list of flags including `--check-overview`, `--check-items`, `--pass-condition`, `--fail-condition`, `--flag-condition`, `--repositories`, `--semgrep-rules` / `--opengrep-rules` (aliases for the same flag — don't pass both in the same command), `--max-targets`, and `--language`.
 
 ## What gets created
 
@@ -36,8 +36,8 @@ Running `new-check` creates a check folder in `<config-dir>/checks/<check-id>/` 
 
 - `<id>.json` - check definition (name, severity, type, discovery method, target config)
 - `<id>.md` - markdown instructions for AI analysis (not created for `static` checks or targeted checks using a built-in analysis mode)
-- `<id>.yaml` - Semgrep rule file (for checks with `semgrep` discovery only)
-- `tests/` - Semgrep rule test files (for checks with `semgrep` discovery only)
+- `<id>.yaml` - Semgrep/Opengrep rule file (for checks with `semgrep` or `opengrep` discovery — both tools share the same rule syntax)
+- `tests/` - Semgrep/Opengrep rule test files (for checks with `semgrep` or `opengrep` discovery)
 
 The check is also registered in `checks-config.json`.
 

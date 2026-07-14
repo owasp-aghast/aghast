@@ -2,7 +2,7 @@
  * Integration tests for diff filtering applied to Semgrep discovery.
  *
  * Spawns the actual CLI process with AGHAST_MOCK_AI=true,
- * AGHAST_MOCK_SEMGREP, AGHAST_OPENANT_DATASET, and --diff-file
+ * AGHAST_MOCK_SARIF, AGHAST_OPENANT_DATASET, and --diff-file
  * to verify the full discovery + diff-filter pipeline end-to-end.
  * Acts as the behaviour-preservation gate for the refactor from the
  * former diff-semgrep discovery to the diffFilter cross-cutting flag.
@@ -37,7 +37,7 @@ describe('CLI diff-filter (semgrep): PASS scenarios', () => {
     const { exitCode, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
       },
       [
@@ -57,7 +57,7 @@ describe('CLI diff-filter (semgrep): PASS scenarios', () => {
     const { exitCode } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
       },
       [
@@ -93,7 +93,7 @@ describe('CLI diff-filter (semgrep): filtering', () => {
     const { exitCode, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
       },
       [
@@ -113,7 +113,7 @@ describe('CLI diff-filter (semgrep): filtering', () => {
     const { stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
       },
       [
@@ -151,7 +151,7 @@ describe('CLI diff-filter (semgrep): fallback and error scenarios', () => {
     const { exitCode, stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
         AGHAST_DIFF_REF: undefined,
       },
@@ -175,7 +175,7 @@ describe('CLI diff-filter (semgrep): fallback and error scenarios', () => {
     const { exitCode } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
       },
       [

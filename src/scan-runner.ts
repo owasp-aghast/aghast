@@ -17,6 +17,7 @@ import { CHECK_TYPE } from './check-types.js';
 import { getDiscovery, registerDiscovery } from './discovery.js';
 import { DEFAULT_PROVIDER_NAME } from './provider-registry.js';
 import { semgrepDiscovery } from './discoveries/semgrep-discovery.js';
+import { opengrepDiscovery } from './discoveries/opengrep-discovery.js';
 import { openantDiscovery } from './discoveries/openant-discovery.js';
 import { sarifDiscovery } from './discoveries/sarif-discovery.js';
 import { applyDiffFilter } from './diff-filter.js';
@@ -50,6 +51,7 @@ const DEFAULT_TARGET_TIMEOUT_MS = 5 * 60 * 1000;
 
 // --- Register built-in discovery implementations ---
 registerDiscovery(semgrepDiscovery);
+registerDiscovery(opengrepDiscovery);
 registerDiscovery(openantDiscovery);
 registerDiscovery(sarifDiscovery);
 

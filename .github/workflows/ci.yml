@@ -187,6 +187,7 @@ jobs:
             "${files[@]}"
         env:
           AGHAST_SKIP_SEMGREP_TESTS: 'true'
+          AGHAST_SKIP_OPENGREP_TESTS: 'true'
           SHARD: ${{ matrix.shard }}
 
       - name: Upload test results
@@ -326,6 +327,88 @@ jobs:
       - name: Run Semgrep integration tests
         run: npm run test:semgrep
 
+  opengrep-integration:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mirrors the semgrep-integration matrix: public repo tests 3 OSes, internal tests ubuntu only.
+        os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Opengrep (Linux / macOS)
+        # The upstream install.sh calls the unauthenticated GitHub API to list releases
+        # (https://github.com/opengrep/opengrep#quick-install-recommended) and hits shared-IP rate
+        # limits on CI runners. We bypass it with `gh release download` (authenticated via GH_TOKEN).
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64)  ASSET="opengrep_manylinux_x86" ;;
+            Linux-aarch64) ASSET="opengrep_manylinux_aarch64" ;;
+            Darwin-x86_64) ASSET="opengrep_osx_x86" ;;
+            Darwin-arm64)  ASSET="opengrep_osx_arm64" ;;
+            *) echo "Unsupported platform: $(uname -s)-$(uname -m)"; exit 1 ;;
+          esac
+
+          VERSION=$(gh release view --repo opengrep/opengrep --json tagName --jq .tagName)
+          INST="$HOME/.opengrep/cli/$VERSION"
+          mkdir -p "$INST"
+
+          gh release download "$VERSION" --repo opengrep/opengrep --pattern "$ASSET" --output "$INST/opengrep"
+          chmod +x "$INST/opengrep"
+
+          LATEST="$HOME/.opengrep/cli/latest"
+          rm -f "$LATEST"
+          ln -s "$INST" "$LATEST"
+
+          echo "$LATEST" >> "$GITHUB_PATH"
+
+      - name: Install Opengrep (Windows)
+        # Same rationale as above: upstream install.ps1 hits the unauthenticated GitHub API.
+        # Use `gh release download` authenticated via GH_TOKEN, and a directory junction
+        # (no admin required) for the 'latest' pointer.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $asset = 'opengrep_windows_x86.exe'
+          $version = gh release view --repo opengrep/opengrep --json tagName --jq .tagName
+          $inst = Join-Path $env:USERPROFILE ".opengrep\cli\$version"
+          New-Item -ItemType Directory -Force -Path $inst | Out-Null
+
+          gh release download $version --repo opengrep/opengrep --pattern $asset --output (Join-Path $inst 'opengrep.exe')
+
+          $latest = Join-Path $env:USERPROFILE ".opengrep\cli\latest"
+          if (Test-Path $latest) { Remove-Item -Recurse -Force $latest }
+          New-Item -ItemType Junction -Path $latest -Target $inst | Out-Null
+
+          Add-Content -Path $env:GITHUB_PATH -Value $latest
+
+      - name: Verify Opengrep is on PATH
+        run: opengrep --version
+
+      - name: Run Opengrep integration tests
+        run: npm run test:opengrep
+
   openant-integration:
     needs: [check-ci-skip]
     if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
@@ -353,19 +436,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build OpenAnt from fork (Unix)
+      - name: Build OpenAnt (Unix)
         if: runner.os != 'Windows'
         run: |
-          git clone https://github.com/joshbouncesecurity/OpenAnt.git /tmp/openant
+          git clone https://github.com/knostic/OpenAnt.git /tmp/openant
           cd /tmp/openant/apps/openant-cli
           go build -o bin/openant ./main.go
           echo "$PWD/bin" >> $GITHUB_PATH
 
-      - name: Build OpenAnt from fork (Windows)
+      - name: Build OpenAnt (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          git clone https://github.com/joshbouncesecurity/OpenAnt.git $env:RUNNER_TEMP\openant
+          git clone https://github.com/knostic/OpenAnt.git $env:RUNNER_TEMP\openant
           Set-Location $env:RUNNER_TEMP\openant\apps\openant-cli
           go build -o bin\openant.exe .\main.go
           "$PWD\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append

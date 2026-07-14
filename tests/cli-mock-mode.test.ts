@@ -788,7 +788,7 @@ describe('CLI mock mode: multi-target checks', () => {
 
   it('PASS: default mock response with 3 targets → PASS, targetsAnalyzed: 3', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -809,7 +809,7 @@ describe('CLI mock mode: multi-target checks', () => {
     const { exitCode } = await runCLI(
       {
         AGHAST_MOCK_AI: failFixtureRepo,
-        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+        AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
@@ -841,7 +841,7 @@ describe('CLI mock mode: multi-target checks', () => {
     const { exitCode } = await runCLI(
       {
         AGHAST_MOCK_AI: multiIssueFixture,
-        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+        AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
       [fixtureRepo, '--config-dir', multiTargetCappedConfigDir],
     );
@@ -867,7 +867,7 @@ describe('CLI mock mode: multi-target checks', () => {
     await runCLI(
       {
         AGHAST_MOCK_AI: multiIssueFixture,
-        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+        AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
@@ -879,7 +879,7 @@ describe('CLI mock mode: multi-target checks', () => {
 
   it('empty SARIF: 0 targets → PASS, targetsAnalyzed: 0', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -908,7 +908,7 @@ describe('CLI mock mode: multi-target checks', () => {
 
   it('repository-wide check in mixed config still works (no regression)', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', mixedChecksConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -934,7 +934,7 @@ describe('CLI mock mode: multi-target checks', () => {
 
   it('targetsAnalyzed present in check summary output', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -950,7 +950,7 @@ describe('CLI mock mode: multi-target checks', () => {
     const { exitCode } = await runCLI(
       {
         AGHAST_MOCK_AI: failFixtureRepo,
-        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+        AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
@@ -971,7 +971,7 @@ describe('CLI mock mode: multi-target checks', () => {
 
   it('stdout shows PASS in summary banner for multi-target', async () => {
     const { stdout, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     const combined = stdout + stderr;
@@ -980,7 +980,7 @@ describe('CLI mock mode: multi-target checks', () => {
 
   it('SARIF result without endLine is processed (endLine defaults to startLine)', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: noEndlineSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: noEndlineSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -1001,7 +1001,7 @@ describe('CLI mock mode: concurrency progress output', () => {
 
   it('stdout/stderr contains concurrency and progress messages', async () => {
     const { stdout, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     const combined = stdout + stderr;
@@ -1019,7 +1019,7 @@ describe('CLI mock mode: concurrency progress output', () => {
     const { exitCode } = await runCLI(
       {
         AGHAST_MOCK_AI: failFixtureRepo,
-        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+        AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
@@ -1053,7 +1053,7 @@ describe('CLI: conditional prerequisite validation', () => {
         ANTHROPIC_API_KEY: '',
         AGHAST_LOCAL_CLAUDE: '',
         AGHAST_MOCK_AI: '',
-        AGHAST_MOCK_SEMGREP: emptyResultsSarif,
+        AGHAST_MOCK_SARIF: emptyResultsSarif,
       },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
@@ -1072,7 +1072,7 @@ describe('CLI: conditional prerequisite validation', () => {
         ANTHROPIC_API_KEY: '',
         AGHAST_LOCAL_CLAUDE: '',
         AGHAST_MOCK_AI: '',
-        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+        AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );

@@ -22,6 +22,7 @@
     "test:coverage": "node --experimental-test-coverage --import tsx --test tests/*.test.ts",
     "test:ci": "node --import tsx --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results.xml tests/*.test.ts",
     "test:semgrep": "node --import tsx --test tests/semgrep-integration.itest.ts",
+    "test:opengrep": "node --import tsx --test tests/opengrep-integration.itest.ts",
     "test:openant": "node --import tsx --test tests/openant-integration.itest.ts",
     "test:opencode": "node --import tsx --test --test-force-exit tests/opencode-integration.itest.ts",
     "lint": "eslint src/ tests/",
@@ -44,7 +45,7 @@
     "eslint": "^10.0.3",
     "fast-check": "^4.6.0",
     "tsx": "^4.21.0",
-    "typescript": "~6.0.2",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.57.1"
   },
   "dependencies": {

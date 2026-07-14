@@ -1,11 +1,12 @@
 /**
- * Semgrep-based target discovery.
+ * Opengrep-based target discovery.
  *
- * Runs Semgrep rules against the repository, parses SARIF output,
- * and returns discovered targets with inline prompt enrichment.
+ * Runs Opengrep rules (drop-in-compatible with Semgrep rules) against the
+ * repository, parses SARIF output, and returns discovered targets with
+ * inline prompt enrichment.
  */
 
-import { runSemgrep } from '../semgrep-runner.js';
+import { runOpengrep } from '../opengrep-runner.js';
 import { parseSARIF, deduplicateTargets } from '../sarif-parser.js';
 import { logDebug } from '../logging.js';
 import { buildSarifTargetPromptEnrichment } from './sarif-target-enrichment.js';
@@ -13,10 +14,10 @@ import { DEFAULT_GENERIC_PROMPT } from '../defaults.js';
 import type { TargetDiscovery, DiscoveredTarget, DiscoveryOptions } from '../discovery.js';
 import type { SecurityCheck } from '../types.js';
 
-const TAG = 'semgrep-discovery';
+const TAG = 'opengrep-discovery';
 
-export const semgrepDiscovery: TargetDiscovery = {
-  name: 'semgrep',
+export const opengrepDiscovery: TargetDiscovery = {
+  name: 'opengrep',
   defaultGenericPrompt: DEFAULT_GENERIC_PROMPT,
   needsInstructions: true,
   supportsDiffFilter: true,
@@ -28,9 +29,9 @@ export const semgrepDiscovery: TargetDiscovery = {
   ): Promise<DiscoveredTarget[]> {
     const checkTarget = check.checkTarget!;
 
-    logDebug(TAG, `Running Semgrep for check: ${check.id}`);
+    logDebug(TAG, `Running Opengrep for check: ${check.id}`);
 
-    const sarifContent = await runSemgrep({
+    const sarifContent = await runOpengrep({
       repositoryPath: repoPath,
       rules: checkTarget.rules,
       config: checkTarget.config,

@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-opengrep-only",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

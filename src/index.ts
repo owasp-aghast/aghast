@@ -26,6 +26,7 @@ import type { LogLevel } from './logging.js';
 import { MOCK_MODEL_NAME, DEFAULT_MODEL, type AgentProvider } from './types.js';
 import { getFormatter } from './formatters/index.js';
 import { verifySemgrepInstalled } from './semgrep-runner.js';
+import { verifyOpengrepInstalled } from './opengrep-runner.js';
 import { verifyOpenAntInstalled } from './openant-runner.js';
 import { MockAgentProvider } from './mock-agent-provider.js';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
@@ -560,6 +561,7 @@ export async function runScan(args: string[]): Promise<void> {
   // ─── Determine which prerequisites are needed ───
   const needsAI = checksWithDetails.some(c => getCheckType(c.check.checkTarget?.type).needsAI);
   const needsSemgrep = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'semgrep');
+  const needsOpengrep = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'opengrep');
   const needsOpenant = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'openant');
 
   // ─── Resolve diff source ───
@@ -620,12 +622,24 @@ export async function runScan(args: string[]): Promise<void> {
     logProgress(TAG, `Using model: ${modelName}`);
   }
 
-  // ─── Conditional Semgrep verification (needed for semgrep discovery) ───
-  if (needsSemgrep && !process.env.AGHAST_MOCK_SEMGREP) {
+  // ─── Conditional Semgrep verification ───
+  // The mock-env check (AGHAST_MOCK_SARIF) is handled inside
+  // verifySarifScannerInstalled; no need to duplicate it here.
+  if (needsSemgrep) {
     try {
       await verifySemgrepInstalled();
     } catch (err) {
       console.error(formatError(ERROR_CODES.E5001, err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    }
+  }
+
+  // ─── Conditional Opengrep verification ───
+  if (needsOpengrep) {
+    try {
+      await verifyOpengrepInstalled();
+    } catch (err) {
+      console.error(formatError(ERROR_CODES.E5101, err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
   }

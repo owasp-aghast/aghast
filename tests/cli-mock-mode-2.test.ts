@@ -224,7 +224,7 @@ describe('CLI mock mode: ERROR and FLAG scenarios', () => {
 
   it('FLAG multi-target: all targets flag → check status FLAG, flaggedChecks=1', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: flagResponseFixture, AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: flagResponseFixture, AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -325,7 +325,7 @@ describe('CLI mock mode: ERROR and FLAG scenarios (continued)', () => {
 
   it('partial results: Semgrep error + repo-wide PASS → 2 checks, errorChecks=1, exit 0', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: '/nonexistent/mock-semgrep.sarif' },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: '/nonexistent/mock-semgrep.sarif' },
       [fixtureRepo, '--config-dir', mixedResultsConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -356,7 +356,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('PASS: empty SARIF → PASS, 0 issues', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -376,7 +376,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('FAIL: 3 SARIF findings → FAIL, issues mapped with correct fields', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -406,7 +406,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('severity and confidence from check config appear on issues', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -422,7 +422,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('ERROR: bad mock SARIF path → ERROR status', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: '/nonexistent/bad.sarif' },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: '/nonexistent/bad.sarif' },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -438,7 +438,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('summary banner shows ISSUES DETECTED when a check fails', async () => {
     const { stdout, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     const combined = stdout + stderr;
@@ -447,7 +447,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('summary banner shows NO ISSUES DETECTED for empty SARIF', async () => {
     const { stdout, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     const combined = stdout + stderr;
@@ -456,7 +456,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('mixed config: semgrep-only + AI check both processed', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', mixedWithSemgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -487,7 +487,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('semgrep-only scan does not log "Using model"', async () => {
     const { stdout, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     const combined = stdout + stderr;
@@ -496,7 +496,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('semgrep-only scan sets agentProvider.name to "none" in results', async () => {
     await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
 
@@ -508,7 +508,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('mixed scan (AI + semgrep-only) still logs "Using model"', async () => {
     const { stdout, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', mixedWithSemgrepOnlyConfigDir],
     );
     const combined = stdout + stderr;
@@ -517,7 +517,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('SARIF output format includes semgrep-only findings', async () => {
     const { exitCode } = await runCLISarif(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir, '--output-format', 'sarif'],
     );
     assert.equal(exitCode, 0);
@@ -535,7 +535,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('--fail-on-check-failure exits 1 on FAIL', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir, '--fail-on-check-failure'],
     );
     assert.equal(exitCode, 1);
@@ -543,7 +543,7 @@ describe('CLI mock mode: semgrep-only checks', () => {
 
   it('codeSnippet is extracted for semgrep-only findings', async () => {
     const { exitCode } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0);
@@ -814,7 +814,7 @@ describe('CLI: --generic-prompt with mixed discovery types', () => {
 
   it('errors when --generic-prompt is used with checks having different discovery types', async () => {
     const { exitCode, stderr } = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
       [fixtureRepo, '--config-dir', mixedDiscoveryConfigDir, '--generic-prompt', 'custom-prompt.md'],
     );
     assert.notEqual(exitCode, 0, 'Should exit with error');

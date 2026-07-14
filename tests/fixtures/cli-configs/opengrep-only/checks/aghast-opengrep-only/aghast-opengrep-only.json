@@ -1,0 +1,7 @@
+{
+  "id": "aghast-opengrep-only",
+  "name": "Opengrep-Only Check",
+  "severity": "high",
+  "confidence": "high",
+  "checkTarget": { "type": "static", "discovery": "opengrep", "rules": "unused-in-mock.yaml" }
+}
