@@ -101,11 +101,12 @@ describe('Built-in discoveries (loaded via scan-runner)', () => {
   // Import scan-runner to trigger the side-effect registration of built-in discoveries.
   // This must be a dynamic import so the registry is populated after clearDiscoveryRegistry()
   // in the beforeEach above doesn't interfere.
-  it('semgrep, openant, and sarif are registered after scan-runner loads', async () => {
+  it('semgrep, opengrep, openant, and sarif are registered after scan-runner loads', async () => {
     // Dynamic import triggers the registerDiscovery() calls in scan-runner.ts
     await import('../src/scan-runner.js');
     const names = getRegisteredDiscoveries();
     assert.ok(names.includes('semgrep'), 'semgrep should be registered');
+    assert.ok(names.includes('opengrep'), 'opengrep should be registered');
     assert.ok(names.includes('openant'), 'openant should be registered');
     assert.ok(names.includes('sarif'), 'sarif should be registered');
     assert.ok(!names.includes('diff-semgrep'), 'diff-semgrep is no longer a discovery');

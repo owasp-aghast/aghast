@@ -47,19 +47,19 @@ describe('buildSemgrepArgs', () => {
 });
 
 describe('runSemgrep (mock mode)', () => {
-  const origEnv = process.env.AGHAST_MOCK_SEMGREP;
+  const origEnv = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
     if (origEnv === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origEnv;
+      process.env.AGHAST_MOCK_SARIF = origEnv;
     }
   });
 
-  it('returns fixture file content when AGHAST_MOCK_SEMGREP is set', async () => {
+  it('returns fixture file content when AGHAST_MOCK_SARIF is set', async () => {
     const fixturePath = resolve(fixtureDir, 'semgrep-results.sarif');
-    process.env.AGHAST_MOCK_SEMGREP = fixturePath;
+    process.env.AGHAST_MOCK_SARIF = fixturePath;
 
     const result = await runSemgrep({ repositoryPath: fixtureRepo });
     const parsed = JSON.parse(result);
@@ -67,12 +67,12 @@ describe('runSemgrep (mock mode)', () => {
     assert.equal(parsed.runs[0].results.length, 3);
   });
 
-  it('throws when AGHAST_MOCK_SEMGREP points to non-existent file', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = '/does/not/exist/results.sarif';
+  it('throws when AGHAST_MOCK_SARIF points to non-existent file', async () => {
+    process.env.AGHAST_MOCK_SARIF = '/does/not/exist/results.sarif';
 
     await assert.rejects(
       () => runSemgrep({ repositoryPath: fixtureRepo }),
-      /Failed to read AGHAST_MOCK_SEMGREP file/,
+      /Failed to read AGHAST_MOCK_SARIF file/,
     );
   });
 });

@@ -499,18 +499,18 @@ function makeMultiTargetCheck(
 }
 
 describe('runMultiScan (multi-target checks)', () => {
-  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+  const origMockSemgrep = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
     if (origMockSemgrep === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+      process.env.AGHAST_MOCK_SARIF = origMockSemgrep;
     }
   });
 
   it('3 targets all pass → PASS with targetsAnalyzed: 3', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -526,7 +526,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('3 targets, 1 has issues → FAIL with enriched issues', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // target 1: pass
@@ -561,7 +561,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('3 targets, 1 AI error → ERROR', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // target 1: pass
@@ -581,7 +581,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('some targets error AND others find issues → FAIL (not ERROR)', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
 
     // Custom provider: call 0 finds an issue, call 1 passes, call 2 throws
     let callCount = 0;
@@ -622,7 +622,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('0 targets → PASS with targetsAnalyzed: 0', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = emptySarif;
+    process.env.AGHAST_MOCK_SARIF = emptySarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -638,7 +638,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('maxTargets limiting applied via checkTarget.maxTargets', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -654,7 +654,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('checkTarget.maxTargets=2 limits to 2 targets', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -670,7 +670,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('target location embedded in prompt sent to agent provider', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     await runMultiScan({
@@ -742,7 +742,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('issues include codeSnippet from fixture file', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = new MockAgentProvider({
       response: {
         issues: [{
@@ -769,7 +769,7 @@ describe('runMultiScan (multi-target checks)', () => {
   });
 
   it('severity and confidence propagated in multi-target mode', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = new MockAgentProvider({
       response: {
         issues: [{
@@ -824,13 +824,13 @@ function makeFpValidationCheck(
 }
 
 describe('runMultiScan (false-positive-validation)', () => {
-  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+  const origMockSarif = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
-    if (origMockSemgrep === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+    if (origMockSarif === undefined) {
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+      process.env.AGHAST_MOCK_SARIF = origMockSarif;
     }
   });
 
@@ -839,7 +839,7 @@ describe('runMultiScan (false-positive-validation)', () => {
     // targets 0 and 2 (→ global issues 0,1); check B confirms only target 1
     // (→ global issue 2). The TP record from check B must have its issueIndex
     // offset by check A's issue count, i.e. point at index 2, not 0.
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
 
     const tp = (desc: string): CheckResponse => ({
       issues: [{ file: 'src/example.ts', startLine: 4, endLine: 4, description: desc }],
@@ -908,7 +908,7 @@ describe('runMultiScan (false-positive-validation)', () => {
     // AI returns issues but labels the target a false positive. Issues are the
     // source of truth, so the record must be filed as a true positive and the
     // issue must still appear in results.issues.
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
 
     const provider = new MockAgentProvider();
     provider.setResponseQueue([
@@ -937,7 +937,7 @@ describe('runMultiScan (false-positive-validation)', () => {
   });
 
   it('substitutes a sentinel rationale when the AI omits one', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
 
     const provider = new MockAgentProvider();
     provider.setResponseQueue([
@@ -996,18 +996,18 @@ function createTrackingProvider(
 }
 
 describe('runMultiScan (concurrency)', () => {
-  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+  const origMockSemgrep = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
     if (origMockSemgrep === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+      process.env.AGHAST_MOCK_SARIF = origMockSemgrep;
     }
   });
 
   it('concurrency limit respected (10 targets, concurrency 3)', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    process.env.AGHAST_MOCK_SARIF = multiTarget10Sarif;
     const { provider, getMaxActive } = createTrackingProvider(50);
 
     const results = await runMultiScan({
@@ -1024,7 +1024,7 @@ describe('runMultiScan (concurrency)', () => {
   });
 
   it('default concurrency is 5 (10 targets, no concurrency specified)', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    process.env.AGHAST_MOCK_SARIF = multiTarget10Sarif;
     const { provider, getMaxActive } = createTrackingProvider(50);
 
     const results = await runMultiScan({
@@ -1040,7 +1040,7 @@ describe('runMultiScan (concurrency)', () => {
   });
 
   it('per-check concurrency overrides MultiScanOptions concurrency', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    process.env.AGHAST_MOCK_SARIF = multiTarget10Sarif;
     const { provider, getMaxActive } = createTrackingProvider(50);
 
     const results = await runMultiScan({
@@ -1058,7 +1058,7 @@ describe('runMultiScan (concurrency)', () => {
   });
 
   it('result ordering preserved with variable delays', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif; // 3 targets
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif; // 3 targets
     const delays = [100, 10, 50];
     let callIdx = 0;
 
@@ -1097,7 +1097,7 @@ describe('runMultiScan (concurrency)', () => {
 
   it('single target works with concurrency 5', async () => {
     // Use multiTarget10Sarif with maxTargets: 1 to get a single target
-    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    process.env.AGHAST_MOCK_SARIF = multiTarget10Sarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1116,13 +1116,13 @@ describe('runMultiScan (concurrency)', () => {
 // --- runMultiScan tests (FLAG status) ---
 
 describe('runMultiScan (FLAG status)', () => {
-  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+  const origMockSemgrep = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
     if (origMockSemgrep === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+      process.env.AGHAST_MOCK_SARIF = origMockSemgrep;
     }
   });
 
@@ -1165,7 +1165,7 @@ describe('runMultiScan (FLAG status)', () => {
   });
 
   it('multi-target: all 3 targets flag → check status FLAG', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = new MockAgentProvider({
       response: { issues: [], flagged: true },
     });
@@ -1182,7 +1182,7 @@ describe('runMultiScan (FLAG status)', () => {
   });
 
   it('multi-target: FLAG priority over ERROR (some flag, some error, no issues) → FLAG', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
 
     // Calls 0 and 1 return flagged, call 2 throws
     let flagErrCallCount = 0;
@@ -1211,7 +1211,7 @@ describe('runMultiScan (FLAG status)', () => {
   });
 
   it('multi-target: FAIL overrides FLAG (some flag, one has issues) → FAIL', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [], flagged: true }, // target 1: flag
@@ -1331,13 +1331,13 @@ describe('runMultiScan (FLAG status)', () => {
 // --- runMultiScan tests (token usage) ---
 
 describe('runMultiScan (token usage)', () => {
-  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+  const origMockSemgrep = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
     if (origMockSemgrep === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+      process.env.AGHAST_MOCK_SARIF = origMockSemgrep;
     }
   });
 
@@ -1391,7 +1391,7 @@ describe('runMultiScan (token usage)', () => {
   });
 
   it('multi-target: token usage aggregated across targets', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProviderWithTokens({ inputTokens: 50, outputTokens: 25, totalTokens: 75 });
 
     const results = await runMultiScan({
@@ -1452,18 +1452,18 @@ function makeSemgrepOnlyCheck(
 }
 
 describe('runMultiScan (semgrep-only checks)', () => {
-  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+  const origMockSemgrep = process.env.AGHAST_MOCK_SARIF;
 
   afterEach(() => {
     if (origMockSemgrep === undefined) {
-      delete process.env.AGHAST_MOCK_SEMGREP;
+      delete process.env.AGHAST_MOCK_SARIF;
     } else {
-      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+      process.env.AGHAST_MOCK_SARIF = origMockSemgrep;
     }
   });
 
   it('0 findings → PASS, targetsAnalyzed: 0, no AI calls', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = emptySarif;
+    process.env.AGHAST_MOCK_SARIF = emptySarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1480,7 +1480,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
   });
 
   it('3 findings → FAIL with correct SecurityIssue mapping', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1510,7 +1510,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
   });
 
   it('severity and confidence from check config', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1526,7 +1526,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
   });
 
   it('maxTargets limiting', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1543,8 +1543,8 @@ describe('runMultiScan (semgrep-only checks)', () => {
   });
 
   it('Semgrep failure → ERROR status', async () => {
-    // No AGHAST_MOCK_SEMGREP set and no real semgrep → error
-    delete process.env.AGHAST_MOCK_SEMGREP;
+    // No AGHAST_MOCK_SARIF set and no real semgrep → error
+    delete process.env.AGHAST_MOCK_SARIF;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1560,7 +1560,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
   });
 
   it('no tokenUsage on summary', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProviderWithTokens({ inputTokens: 100, outputTokens: 50, totalTokens: 150 });
 
     const results = await runMultiScan({
@@ -1574,7 +1574,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
   });
 
   it('mixed check: semgrep-only + AI check both produce correct results', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
     const provider = createPassProvider();
 
     const results = await runMultiScan({
@@ -1607,7 +1607,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
 
 describe('runMultiScan (fatal error abort)', () => {
   afterEach(() => {
-    delete process.env.AGHAST_MOCK_SEMGREP;
+    delete process.env.AGHAST_MOCK_SARIF;
   });
 
   it('FatalProviderError aborts remaining checks', async () => {
@@ -1702,7 +1702,7 @@ describe('runMultiScan (fatal error abort)', () => {
   });
 
   it('FatalProviderError in multi-target check aborts remaining checks', async () => {
-    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    process.env.AGHAST_MOCK_SARIF = multiTargetSarif;
 
     const fatalProvider: AgentProvider = {
       async initialize() {},

@@ -560,6 +560,78 @@ describe('new-check utility', () => {
     assert.ok(testContent.includes('# ruleid: aghast-test'), 'Test file should use Python comment syntax');
   });
 
+  // ─── Opengrep discovery (parallel to semgrep) ────────────────────────────
+
+  it('creates checkTarget in check.json for targeted/opengrep type with explicit rules', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'opengrep',
+      '--semgrep-rules': 'rules/sql.yaml',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.deepEqual(checkDef.checkTarget, {
+      type: 'targeted',
+      discovery: 'opengrep',
+      rules: 'rules/sql.yaml',
+    });
+  });
+
+  it('generates <id>.yaml inside check folder when type is targeted/opengrep and no rules provided', async () => {
+    const flags = allFlags({ '--check-type': 'targeted', '--discovery': 'opengrep', '--language': 'python' });
+
+    const result = await runNewCheck(flags);
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    // Rule template is generated with identical format — opengrep and semgrep share rule syntax.
+    const ruleFile = resolve(checksDir, 'aghast-test', 'aghast-test.yaml');
+    const ruleContent = await readFile(ruleFile, 'utf-8');
+    assert.ok(ruleContent.includes('id: aghast-test'));
+    assert.ok(ruleContent.includes('languages: [python]'));
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'opengrep');
+    assert.equal(checkDef.checkTarget.rules, 'aghast-test.yaml');
+  });
+
+  it('static/opengrep creates checkTarget with no instructionsFile', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'static',
+      '--discovery': 'opengrep',
+      '--semgrep-rules': 'rules/detect.yaml',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'static');
+    assert.equal(checkDef.checkTarget.discovery, 'opengrep');
+    assert.equal(checkDef.checkTarget.rules, 'rules/detect.yaml');
+    assert.equal(checkDef.instructionsFile, undefined);
+  });
+
+  it('rejects when both --semgrep-rules and --opengrep-rules are passed', async () => {
+    const result = await runNewCheck([
+      '--config-dir', configDir,
+      '--id', 'aghast-test',
+      '--name', 'Test',
+      '--check-type', 'targeted',
+      '--discovery', 'opengrep',
+      '--semgrep-rules', 'rules/a.yaml',
+      '--opengrep-rules', 'rules/b.yaml',
+    ]);
+
+    assert.notEqual(result.exitCode, 0, 'Expected non-zero exit when both rules flags are passed');
+    assert.ok(
+      result.stderr.includes('--semgrep-rules and --opengrep-rules'),
+      `Expected stderr to mention the conflict, got: ${result.stderr}`,
+    );
+  });
+
   // ─── Interactive retry tests ──────────────────────────────────────────────
 
   it('retries up to 3 times for required fields before exiting', async () => {

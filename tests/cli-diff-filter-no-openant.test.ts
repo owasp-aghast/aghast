@@ -32,7 +32,7 @@ describe('CLI diff-filter fallback when OpenAnt is unavailable', () => {
     const { exitCode, stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_TESTING_OPENANT_UNAVAILABLE: 'true',
         // Note: no AGHAST_OPENANT_DATASET, so the install check runs and fails.
       },
@@ -65,7 +65,7 @@ describe('CLI diff-filter fallback when OpenAnt is unavailable', () => {
     const { exitCode, stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_TESTING_OPENANT_UNAVAILABLE: 'true',
       },
       [fixtureRepo, '--config-dir', semgrepDiffFilterConfigDir, '--diff-file', diffFile],
@@ -98,7 +98,7 @@ describe('CLI diff-filter fallback when OpenAnt is unavailable', () => {
     const { exitCode, stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_TESTING_OPENANT_UNAVAILABLE: 'true',
         AGHAST_DIFF_REF: undefined,
       },

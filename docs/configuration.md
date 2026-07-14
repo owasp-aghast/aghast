@@ -23,8 +23,8 @@ my-checks/
     aghast-sqli/
       aghast-sqli.json
       aghast-sqli.md
-      aghast-sqli.yaml        # Semgrep rule (for checks with semgrep discovery)
-      tests/                  # Semgrep rule test files
+      aghast-sqli.yaml        # Semgrep/Opengrep rule (for semgrep or opengrep discovery)
+      tests/                  # Semgrep/Opengrep rule test files
         aghast-sqli.py        # .py, .js, or .ts based on --language
   runtime-config.json          # (Optional) Agent provider & reporting overrides
 ```
@@ -113,6 +113,8 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
+Opengrep can be used as a drop-in replacement for Semgrep: change `discovery: "semgrep"` to `discovery: "opengrep"` in any check definition, and the rule file syntax remains identical. Opengrep is a community fork of Semgrep with the same CLI interface and SARIF output format.
+
 **Targeted check with SARIF discovery** (external SARIF findings validated by AI):
 
 ```json
@@ -180,9 +182,9 @@ Diff filtering works identically for `openant` discovery: the filter narrows the
 | `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
 | `checkTarget`      | `object`                      | No       | Target configuration (omit for repository checks) |
 | `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
-| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `sarif`, or `openant` (***required for `targeted` and `static` types) |
+| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `opengrep`, `sarif`, or `openant` (***required for `targeted` and `static` types) |
 | `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
-| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Semgrep rule file path(s) relative to check folder (****only for `semgrep` discovery) |
+| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `semgrep` or `opengrep` discovery — both tools share the same rule syntax) |
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for targeted checks (default: 5) |
@@ -214,6 +216,7 @@ The `discovery` field on `checkTarget` specifies how targets are found for `targ
 | Discovery | Requires | Description | Supports diff filter |
 |-----------|----------|-------------|----------------------|
 | `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations | Yes |
+| `opengrep` | Opengrep installed | Runs Opengrep (a Semgrep fork with identical rule syntax and SARIF output) — supports `targeted` and `static` check types | Yes |
 | `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
 

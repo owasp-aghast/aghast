@@ -85,7 +85,7 @@ export interface OpenAntFilterConfig {
 
 export interface CheckTargetDefinition {
   type: 'targeted' | 'static' | 'repository';
-  discovery?: 'semgrep' | 'openant' | 'sarif';
+  discovery?: 'semgrep' | 'opengrep' | 'openant' | 'sarif';
   rules?: string | string[];
   config?: string;
   sarifFile?: string;

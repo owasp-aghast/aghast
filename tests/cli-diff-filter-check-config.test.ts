@@ -38,7 +38,7 @@ describe('CLI diff-filter: checkTarget.diffFilter: false opts a check out', () =
     const { exitCode, stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
         // Unset any inherited env var so the test deterministically exercises
         // "runtime diff source present (via --diff-file), filter suppressed by
@@ -122,7 +122,7 @@ describe('CLI diff-filter: check-level diffRef activates the filter', () => {
     const { exitCode, stdout, stderr } = await runCLI(
       {
         AGHAST_MOCK_AI: 'true',
-        AGHAST_MOCK_SEMGREP: diffSemgrepSarif,
+        AGHAST_MOCK_SARIF: diffSemgrepSarif,
         AGHAST_OPENANT_DATASET: diffSemgrepDataset,
         AGHAST_DIFF_REF: undefined,
       },

@@ -48,7 +48,7 @@ Run `aghast scan --help` for the full list of options.
 | `AGHAST_LOG_LEVEL` | Console log level (CLI `--log-level` takes precedence) |
 | `AGHAST_LOG_FILE` | Log file path (CLI `--log-file` takes precedence) |
 | `AGHAST_LOG_TYPE` | Log file handler type (CLI `--log-type` takes precedence) |
-| `AGHAST_MOCK_SEMGREP` | Path to a SARIF file to use instead of running Semgrep (for testing `semgrep` discovery without Semgrep installed) |
+| `AGHAST_MOCK_SARIF` | Path to a SARIF file to use instead of running Semgrep or Opengrep (test/dev use only; also skips the install prerequisite check for whichever tool the check targets) |
 | `AGHAST_OPENANT_DATASET` | Path to a pre-generated OpenAnt dataset JSON file. When set, aghast uses this dataset directly instead of invoking `openant parse`. Useful for caching the dataset across multiple scans, splitting OpenAnt and aghast into separate CI jobs, running aghast where Python 3.11+ isn't available, or stubbing OpenAnt output in tests |
 | `AGHAST_DIFF_REF` | Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence) |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
@@ -105,6 +105,7 @@ Discovery methods for `targeted` and `static` checks:
 | Discovery | Requires | Description | Supports `diffFilter` |
 |-----------|----------|-------------|-----------------------|
 | `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations | Yes |
+| `opengrep` | Opengrep installed | Runs Opengrep (a Semgrep fork with identical rule syntax and SARIF output) | Yes |
 | `sarif` | SARIF file in check definition | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
 
@@ -115,7 +116,7 @@ Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
 | Mode | Discovery | Description |
 |------|-----------|-------------|
 | `custom` (default) | All | AI analyzes each target using your custom instructions markdown file |
-| `false-positive-validation` | `semgrep`, `sarif` | AI validates each finding as a true or false positive |
+| `false-positive-validation` | `semgrep`, `opengrep`, `sarif` | AI validates each finding as a true or false positive |
 | `general-vuln-discovery` | All | AI scans each target for a broad range of security vulnerabilities |
 
 Built-in modes (`false-positive-validation`, `general-vuln-discovery`) provide their own prompt template and don't require an instructions file. See [How It Works](how-it-works.md#three-check-types) for details.

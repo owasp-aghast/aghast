@@ -1,7 +1,10 @@
 /**
- * Real Semgrep integration tests.
- * These tests actually invoke the `semgrep` binary.
- * Skip by setting AGHAST_SKIP_SEMGREP_TESTS=true.
+ * Real Opengrep integration tests.
+ * These tests actually invoke the `opengrep` binary.
+ * Skip by setting AGHAST_SKIP_OPENGREP_TESTS=true.
+ *
+ * Reuses the Semgrep fixture codebase and rules — rule syntax and SARIF output
+ * are identical between the two tools.
  */
 
 import { describe, it, before, after, afterEach } from 'node:test';
@@ -9,7 +12,7 @@ import assert from 'node:assert/strict';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unlink, writeFile } from 'node:fs/promises';
-import { runSemgrep } from '../src/semgrep-runner.js';
+import { runOpengrep } from '../src/opengrep-runner.js';
 import { parseSARIF } from '../src/sarif-parser.js';
 import { runMultiScan } from '../src/scan-runner.js';
 import { MockAgentProvider } from './mocks/mock-agent-provider.js';
@@ -20,15 +23,15 @@ const testCodebase = resolve(__dirname, 'fixtures', 'semgrep-target');
 const sqlConcatRule = resolve(__dirname, 'fixtures', 'semgrep-rules', 'sql-concat.yaml');
 const fixtureRepo = resolve(__dirname, 'fixtures', 'git-repo');
 const outputFile = resolve(fixtureRepo, 'security_checks_results.json');
-const skip = !!process.env.AGHAST_SKIP_SEMGREP_TESTS;
+const skip = !!process.env.AGHAST_SKIP_OPENGREP_TESTS;
 
-// Semgrep's default ignore list skips tests/ directories. Since the test codebase
-// lives under tests/fixtures/, we create an empty .semgrepignore at the repo root
-// (where Semgrep looks for it) to override those defaults during integration tests.
+// Opengrep inherits Semgrep's default ignore list which skips tests/ directories.
+// Since the fixture codebase lives under tests/fixtures/, create an empty
+// .semgrepignore at the repo root to override those defaults during integration tests.
 const repoRoot = resolve(__dirname, '..');
 const semgrepIgnorePath = join(repoRoot, '.semgrepignore');
 
-describe('Semgrep integration tests', { skip }, () => {
+describe('Opengrep integration tests', { skip }, () => {
   before(async () => {
     await writeFile(semgrepIgnorePath, '');
   });
@@ -37,19 +40,17 @@ describe('Semgrep integration tests', { skip }, () => {
     try { await unlink(semgrepIgnorePath); } catch { /* may not exist */ }
   });
 
-  describe('runSemgrep', () => {
+  describe('runOpengrep', () => {
     it('executes against test codebase and returns valid SARIF', async () => {
-      // Make sure AGHAST_MOCK_SARIF is not set
       const origMock = process.env.AGHAST_MOCK_SARIF;
       delete process.env.AGHAST_MOCK_SARIF;
 
       try {
-        const sarifContent = await runSemgrep({
+        const sarifContent = await runOpengrep({
           repositoryPath: testCodebase,
           rules: sqlConcatRule,
         });
 
-        // Should be valid JSON
         const parsed = JSON.parse(sarifContent);
         assert.equal(parsed.version, '2.1.0');
         assert.ok(parsed.runs, 'SARIF should have runs');
@@ -68,7 +69,7 @@ describe('Semgrep integration tests', { skip }, () => {
       delete process.env.AGHAST_MOCK_SARIF;
 
       try {
-        const sarifContent = await runSemgrep({
+        const sarifContent = await runOpengrep({
           repositoryPath: testCodebase,
           rules: sqlConcatRule,
         });
@@ -76,7 +77,6 @@ describe('Semgrep integration tests', { skip }, () => {
         const targets = parseSARIF(sarifContent);
         assert.ok(targets.length >= 1, `Expected at least 1 target, got ${targets.length}`);
 
-        // All targets should reference files in the test codebase
         for (const target of targets) {
           assert.ok(target.file, 'Target should have a file path');
           assert.ok(target.startLine > 0, 'Target should have startLine > 0');
@@ -95,7 +95,7 @@ describe('Semgrep integration tests', { skip }, () => {
       try { await unlink(outputFile); } catch { /* may not exist */ }
     });
 
-    it('config with semgrep check + real semgrep + mock AI → results with targetsAnalyzed > 0', async () => {
+    it('config with opengrep check + real opengrep + mock AI → results with targetsAnalyzed > 0', async () => {
       const origMock = process.env.AGHAST_MOCK_SARIF;
       delete process.env.AGHAST_MOCK_SARIF;
 
@@ -103,20 +103,20 @@ describe('Semgrep integration tests', { skip }, () => {
         const provider = new MockAgentProvider({ response: { issues: [] } });
 
         const check: SecurityCheck = {
-          id: 'integ-sqli',
-          name: 'Integration SQL Check',
+          id: 'integ-sqli-opengrep',
+          name: 'Integration SQL Check (Opengrep)',
           repositories: [],
           instructionsFile: 'unused.md',
           checkTarget: {
             type: 'targeted',
-            discovery: 'semgrep',
+            discovery: 'opengrep',
             rules: sqlConcatRule,
           },
         };
 
         const details: CheckDetails = {
-          id: 'integ-sqli',
-          name: 'Integration SQL Check',
+          id: 'integ-sqli-opengrep',
+          name: 'Integration SQL Check (Opengrep)',
           overview: 'Integration test check.',
           content: '### Integration SQL Check\n\n#### Overview\nTest.\n',
         };
@@ -142,17 +142,17 @@ describe('Semgrep integration tests', { skip }, () => {
   });
 
   describe('error handling', () => {
-    it('invalid rule file → error from Semgrep execution', async () => {
+    it('invalid rule file → error from Opengrep execution', async () => {
       const origMock = process.env.AGHAST_MOCK_SARIF;
       delete process.env.AGHAST_MOCK_SARIF;
 
       try {
         await assert.rejects(
-          () => runSemgrep({
+          () => runOpengrep({
             repositoryPath: testCodebase,
             rules: '/nonexistent/rule.yaml',
           }),
-          /Semgrep execution failed/,
+          /Opengrep execution failed/,
         );
       } finally {
         if (origMock !== undefined) {

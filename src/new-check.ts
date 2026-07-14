@@ -80,6 +80,7 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
   '--check-type': 'checkType',
   '--discovery': 'discovery',
   '--semgrep-rules': 'semgrepRules',
+  '--opengrep-rules': 'semgrepRules',
   '--sarif-file': 'sarifFile',
   '--analysis-mode': 'analysisMode',
   '--max-targets': 'maxTargets',
@@ -88,6 +89,13 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
 };
 
 function parseFlags(args: string[]): ParsedFlags {
+  if (args.includes('--semgrep-rules') && args.includes('--opengrep-rules')) {
+    console.error(formatError(
+      ERROR_CODES.E1001,
+      '--semgrep-rules and --opengrep-rules are aliases for the same option; pass only one',
+    ));
+    process.exit(1);
+  }
   const flags: ParsedFlags = {};
   for (let i = 0; i < args.length; i++) {
     const key = CLI_FLAG_MAP[args[i]];
@@ -188,7 +196,9 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
   result.checkType = await askChoice('Check type', getValidCheckTypes(), 'targeted', flags.checkType);
 
   if (result.checkType === 'targeted' || result.checkType === 'static') {
-    const discoveryChoices = result.checkType === 'targeted' ? ['semgrep', 'openant', 'sarif'] : ['semgrep'];
+    const discoveryChoices = result.checkType === 'targeted'
+      ? ['semgrep', 'opengrep', 'openant', 'sarif']
+      : ['semgrep', 'opengrep'];
     result.discovery = await askChoice('Discovery method', discoveryChoices, 'semgrep', flags.discovery);
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
 
@@ -199,10 +209,11 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
       result.analysisMode = await askChoice('Analysis mode', modeChoices, 'custom', flags.analysisMode);
     }
 
-    if (result.discovery === 'semgrep') {
+    if (result.discovery === 'semgrep' || result.discovery === 'opengrep') {
+      const toolLabel = result.discovery === 'opengrep' ? 'Opengrep' : 'Semgrep';
       result.semgrepRules = flags.semgrepRules !== undefined
         ? flags.semgrepRules
-        : await askOptional('Semgrep rule file paths (comma-separated, or press Enter to generate template)', undefined);
+        : await askOptional(`${toolLabel} rule file paths (comma-separated, or press Enter to generate template)`, undefined);
       if (!result.semgrepRules) {
         result.language = await askChoice('Language', LANGUAGE_CHOICES, 'javascript', flags.language);
       } else {
@@ -293,7 +304,9 @@ function validateInputs(
   }
 
   if ((inputs.checkType === 'targeted' || inputs.checkType === 'static') && inputs.checkType) {
-    const validDiscoveries = inputs.checkType === 'targeted' ? ['semgrep', 'openant', 'sarif'] : ['semgrep'];
+    const validDiscoveries = inputs.checkType === 'targeted'
+      ? ['semgrep', 'opengrep', 'openant', 'sarif']
+      : ['semgrep', 'opengrep'];
     if (!inputs.discovery || !validDiscoveries.includes(inputs.discovery)) {
       errors.push(`Invalid discovery "${inputs.discovery}" for check type "${inputs.checkType}". Must be one of: ${validDiscoveries.join(', ')}`);
     }
@@ -311,7 +324,7 @@ function validateInputs(
     }
   }
 
-  if (inputs.discovery === 'semgrep' && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
+  if ((inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
     errors.push(`Invalid language "${inputs.language}". Must be one of: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`);
   }
 
@@ -335,7 +348,7 @@ function generateSemgrepRule(checkId: string, language: string): string {
   return `rules:
   - id: ${checkId}
     pattern: |
-      # TODO: Replace with your Semgrep pattern
+      # TODO: Replace with your pattern (Semgrep/Opengrep syntax)
       ...
     message: >
       TODO: Describe the issue this rule detects.
@@ -431,7 +444,7 @@ function generateCheckDefinition(inputs: {
       type: inputs.checkType,
       discovery: inputs.discovery,
     };
-    if (inputs.discovery === 'semgrep') {
+    if (inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') {
       if (inputs.semgrepRules) {
         const rules = inputs.semgrepRules.split(',').map((r) => r.trim()).filter(Boolean);
         checkTarget.rules = rules.length === 1 ? rules[0] : rules;
@@ -491,11 +504,12 @@ Options:
   --flag-condition <text>    Condition for a FLAG result (optional)
   --check-type <type>        Check type (default: targeted). See 'Check types' below
   --discovery <name>         Discovery mechanism for targeted/static checks. See below
-  --semgrep-rules <paths>    Comma-separated Semgrep rule file paths (for semgrep discovery)
+  --semgrep-rules <paths>    Comma-separated rule file paths (for semgrep/opengrep discovery)
+  --opengrep-rules <paths>   Alias for --semgrep-rules; do not pass both (error)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
   --analysis-mode <mode>     Analysis mode for targeted checks (default: custom). See below
   --max-targets <n>          Maximum number of targets to analyze
-  --language <lang>          Language for Semgrep template: python, javascript, typescript
+  --language <lang>          Language for Semgrep/Opengrep template: python, javascript, typescript
   -h, --help                 Show this help message
 
 Environment variables:
@@ -508,12 +522,13 @@ Check types:
 
 Discovery mechanisms:
   semgrep     Semgrep rules find targets (targeted or static)
+  opengrep    Opengrep (Semgrep fork) rules find targets (targeted or static)
   openant     OpenAnt code analysis finds units (targeted only)
   sarif       External SARIF file provides findings (targeted only)
 
 Analysis modes (targeted checks only):
   custom                      Use a custom instructions markdown file (default)
-  false-positive-validation   AI validates each finding as true/false positive (semgrep, sarif)
+  false-positive-validation   AI validates each finding as true/false positive (semgrep, opengrep, sarif)
   general-vuln-discovery      AI scans each target for general security vulnerabilities (all)
 
 Examples:
@@ -588,8 +603,9 @@ export async function runNewCheck(args: string[]): Promise<void> {
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);
   }
 
-  // Generate Semgrep rule template and test file if needed
-  if (inputs.discovery === 'semgrep' && !inputs.semgrepRules) {
+  // Generate Semgrep/Opengrep rule template and test file if needed
+  // (the rule file format is identical between the two tools)
+  if ((inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') && !inputs.semgrepRules) {
     const rulePath = resolve(checkFolder, `${inputs.id}.yaml`);
     await writeFile(rulePath, generateSemgrepRule(inputs.id, inputs.language), 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.yaml (template — edit before running)`);
