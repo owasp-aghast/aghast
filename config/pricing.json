@@ -1,5 +1,5 @@
 {
-  "_comment": "AI provider pricing in USD per 1,000,000 tokens. Prices change over time and may need updates. Last verified: 2026-05. Cache rates: reads ~10% of input rate, writes ~125% of input rate (Anthropic published multipliers).",
+  "_comment": "AI provider pricing in USD per 1,000,000 tokens. Prices change over time and may need updates. Last verified: 2026-07. Cache rates: reads ~10% of input rate, writes ~125% of input rate (Anthropic published multipliers).",
   "currency": "USD",
   "models": {
     "claude-haiku-4-5": {
@@ -8,6 +8,18 @@
       "cacheReadPerMillion": 0.1,
       "cacheWritePerMillion": 1.25
     },
+    "claude-haiku-4-5-20251001": {
+      "inputPerMillion": 1.0,
+      "outputPerMillion": 5.0,
+      "cacheReadPerMillion": 0.1,
+      "cacheWritePerMillion": 1.25
+    },
+    "claude-sonnet-5": {
+      "inputPerMillion": 2.0,
+      "outputPerMillion": 10.0,
+      "cacheReadPerMillion": 0.2,
+      "cacheWritePerMillion": 2.5
+    },
     "claude-sonnet-4-6": {
       "inputPerMillion": 3.0,
       "outputPerMillion": 15.0,
@@ -15,10 +27,28 @@
       "cacheWritePerMillion": 3.75
     },
     "claude-opus-4-7": {
-      "inputPerMillion": 15.0,
-      "outputPerMillion": 75.0,
-      "cacheReadPerMillion": 1.5,
-      "cacheWritePerMillion": 18.75
+      "inputPerMillion": 5.0,
+      "outputPerMillion": 25.0,
+      "cacheReadPerMillion": 0.5,
+      "cacheWritePerMillion": 6.25
+    },
+    "claude-opus-4-8": {
+      "inputPerMillion": 5.0,
+      "outputPerMillion": 25.0,
+      "cacheReadPerMillion": 0.5,
+      "cacheWritePerMillion": 6.25
+    },
+    "claude-fable-5": {
+      "inputPerMillion": 10.0,
+      "outputPerMillion": 50.0,
+      "cacheReadPerMillion": 1.0,
+      "cacheWritePerMillion": 12.5
+    },
+    "claude-mythos-5": {
+      "inputPerMillion": 10.0,
+      "outputPerMillion": 50.0,
+      "cacheReadPerMillion": 1.0,
+      "cacheWritePerMillion": 12.5
     },
     "haiku": {
       "inputPerMillion": 1.0,
@@ -33,10 +63,10 @@
       "cacheWritePerMillion": 3.75
     },
     "opus": {
-      "inputPerMillion": 15.0,
-      "outputPerMillion": 75.0,
-      "cacheReadPerMillion": 1.5,
-      "cacheWritePerMillion": 18.75
+      "inputPerMillion": 5.0,
+      "outputPerMillion": 25.0,
+      "cacheReadPerMillion": 0.5,
+      "cacheWritePerMillion": 6.25
     }
   }
 }
