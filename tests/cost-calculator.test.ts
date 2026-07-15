@@ -108,15 +108,32 @@ describe('sumCosts', () => {
 });
 
 describe('loadDefaultPricing', () => {
-  it('loads built-in config/pricing.json with seed models', async () => {
+  it('loads built-in config/pricing.json with current Claude models', async () => {
     const pricing = await loadDefaultPricing();
     assert.equal(pricing.currency, 'USD');
-    // Seed models documented in the issue
+    // Current generally available models, plus the limited-availability Mythos 5.
     assert.ok(pricing.models['claude-haiku-4-5'], 'haiku entry exists');
-    assert.ok(pricing.models['claude-sonnet-4-6'], 'sonnet entry exists');
-    assert.ok(pricing.models['claude-opus-4-7'], 'opus entry exists');
+    assert.ok(pricing.models['claude-haiku-4-5-20251001'], 'pinned haiku entry exists');
+    assert.ok(pricing.models['claude-sonnet-5'], 'sonnet entry exists');
+    assert.ok(pricing.models['claude-opus-4-8'], 'latest opus entry exists');
+    assert.ok(pricing.models['claude-fable-5'], 'fable entry exists');
+    assert.ok(pricing.models['claude-mythos-5'], 'mythos entry exists');
     assert.equal(typeof pricing.models['claude-haiku-4-5'].inputPerMillion, 'number');
     assert.equal(typeof pricing.models['claude-haiku-4-5'].outputPerMillion, 'number');
+  });
+
+  it('prices Opus 4.8 and the opus alias at current published rates', async () => {
+    const pricing = await loadDefaultPricing();
+    const opus48 = pricing.models['claude-opus-4-8'];
+    const opusAlias = pricing.models.opus;
+
+    assert.deepEqual(opus48, {
+      inputPerMillion: 5,
+      outputPerMillion: 25,
+      cacheReadPerMillion: 0.5,
+      cacheWritePerMillion: 6.25,
+    });
+    assert.deepEqual(opusAlias, opus48);
   });
 
   it('cost matches expected for default haiku pricing', async () => {
