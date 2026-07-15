@@ -6,7 +6,7 @@
 import type { AgentProvider, AgentResponse, ProviderConfig, CheckResponse, ProviderModelInfo, TokenUsage } from './types.js';
 import { DEFAULT_MODEL, FatalProviderError } from './types.js';
 // import { parseAgentResponse } from './response-parser.js';
-import { logProgress, logDebug, logDebugFull, createTimer, getLogLevel } from './logging.js';
+import { logProgress, logDebug, logDebugFull, logWarn, createTimer, getLogLevel } from './logging.js';
 import { OUTPUT_SCHEMA } from './provider-utils.js';
 
 const TAG = 'agent-provider';
@@ -64,6 +64,10 @@ async function listModelsViaAgentSdk(): Promise<readonly ProviderModelInfo[]> {
 const HEARTBEAT_INTERVAL_MS = 15000; // Log heartbeat every 15s if no activity
 const MAX_API_ERROR_RETRIES = 3; // Fail after this many consecutive API errors
 const MAX_ERROR_DETECTION_LENGTH = 200; // Only check short text chunks for SDK error patterns — longer text is AI analysis content
+
+function isInvalidModelError(message: string): boolean {
+  return /\bmodel\b.*\b(not found|invalid|unsupported|does not exist)\b|\b(not found|invalid|unsupported)\b.*\bmodel\b/i.test(message);
+}
 
 /** Type for the SDK query function — injectable for testing. */
 export type QueryFn = (params: {
@@ -129,9 +133,18 @@ export class ClaudeCodeProvider implements AgentProvider {
   private useLocalClaude: boolean = false;
   private model: string = DEFAULT_MODEL;
   private _queryFn: QueryFn | undefined;
+  private _listModelsFn: (() => Promise<readonly ProviderModelInfo[]>) | undefined;
+  private _listSupportedModelsFn: (() => Promise<readonly ProviderModelInfo[]>) | undefined;
   private _detectLocalLogin: () => Promise<boolean>;
-  constructor(options?: { _queryFn?: QueryFn; _detectLocalLogin?: () => Promise<boolean> }) {
+  constructor(options?: {
+    _queryFn?: QueryFn;
+    _listModelsFn?: () => Promise<readonly ProviderModelInfo[]>;
+    _listSupportedModelsFn?: () => Promise<readonly ProviderModelInfo[]>;
+    _detectLocalLogin?: () => Promise<boolean>;
+  }) {
     this._queryFn = options?._queryFn;
+    this._listModelsFn = options?._listModelsFn;
+    this._listSupportedModelsFn = options?._listSupportedModelsFn;
     this._detectLocalLogin = options?._detectLocalLogin ?? detectLocalLogin;
   }
 
@@ -166,6 +179,9 @@ export class ClaudeCodeProvider implements AgentProvider {
         'ANTHROPIC_API_KEY is required, or log in to a local Claude session (run `claude` and use /login).',
       );
     }
+    if (config.model) {
+      await this.validateConfiguredModel(config.model);
+    }
     if (this.useLocalClaude) {
       logProgress(TAG, 'Using local Claude Code session for authentication');
     } else {
@@ -188,6 +204,9 @@ export class ClaudeCodeProvider implements AgentProvider {
   }
 
   async listModels(): Promise<readonly ProviderModelInfo[]> {
+    if (this._listModelsFn) {
+      return await this._listModelsFn();
+    }
     // Tier 1: if ANTHROPIC_API_KEY is set, hit /v1/models for the full canonical list.
     const apiKey = this.apiKey ?? process.env.ANTHROPIC_API_KEY;
     if (apiKey) {
@@ -199,6 +218,54 @@ export class ClaudeCodeProvider implements AgentProvider {
     }
     // Tier 2: ask the Claude Code agent SDK for its curated list (works with local Claude auth).
     return await listModelsViaAgentSdk();
+  }
+
+  private async listSupportedModels(): Promise<readonly ProviderModelInfo[]> {
+    if (this._listSupportedModelsFn) {
+      return await this._listSupportedModelsFn();
+    }
+    return await listModelsViaAgentSdk();
+  }
+
+  private async validateConfiguredModel(model: string): Promise<void> {
+    let supportedModels: readonly ProviderModelInfo[];
+    try {
+      supportedModels = await this.listSupportedModels();
+    } catch (err) {
+      logWarn(TAG, `Could not validate configured model "${model}" before scanning: ${err instanceof Error ? err.message : String(err)}. Continuing without preflight validation.`);
+      return;
+    }
+
+    if (supportedModels.length === 0) {
+      logWarn(TAG, `Could not validate configured model "${model}" before scanning because Claude Code returned no supported models. Continuing without preflight validation.`);
+      return;
+    }
+
+    if (!supportedModels.some((supported) => supported.id === model)) {
+      throw new FatalProviderError(
+        `Claude Code does not support configured model "${model}". Available models: ${supportedModels.map((supported) => supported.id).join(', ')}.`,
+      );
+    }
+  }
+
+  private async invalidModelError(detail: string): Promise<FatalProviderError> {
+    try {
+      const models = await this.listModels();
+      const available = models.map((model) => model.id);
+      if (available.length > 0) {
+        return new FatalProviderError(
+          `Agent provider rejected model "${this.model}": ${detail}. Available models: ${available.join(', ')}.`,
+        );
+      }
+      return new FatalProviderError(
+        `Agent provider rejected model "${this.model}": ${detail}. The provider returned no available models.`,
+      );
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return new FatalProviderError(
+        `Agent provider rejected model "${this.model}": ${detail}. Could not retrieve available models: ${reason}`,
+      );
+    }
   }
 
   async executeCheck(
@@ -339,6 +406,9 @@ export class ClaudeCodeProvider implements AgentProvider {
             // Detect API errors surfaced as assistant text by the SDK
             const apiErrorMatch = shortChunks.find((t: string) => t.includes('API Error:'));
             if (apiErrorMatch) {
+              if (isInvalidModelError(apiErrorMatch)) {
+                throw await this.invalidModelError(apiErrorMatch);
+              }
               consecutiveApiErrors++;
               if (consecutiveApiErrors >= MAX_API_ERROR_RETRIES) {
                 throw new Error(`Agent provider API error (after ${MAX_API_ERROR_RETRIES} attempts): ${apiErrorMatch}`);
@@ -436,6 +506,9 @@ export class ClaudeCodeProvider implements AgentProvider {
         } else {
           const errorResult = message as { subtype: string; errors?: string[] };
           errorMessage = errorResult.errors?.join('; ') ?? `Agent provider error: ${errorResult.subtype}`;
+          if (isInvalidModelError(errorMessage)) {
+            throw await this.invalidModelError(errorMessage);
+          }
           logProgress(TAG, `${prefix}Failed: ${errorResult.subtype} (${timer.elapsedStr()})`);
         }
       }
