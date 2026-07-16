@@ -150,6 +150,42 @@ describe('CLI: ANTHROPIC_API_KEY and --agent-provider flag', () => {
     assert.equal(exitCode, 0);
   });
 
+  it('--agent-provider takes precedence over the provider from runtime config', async () => {
+    const runtimeConfig = resolve(__dirname, 'fixtures', 'runtime-config', 'opencode.json');
+    const { exitCode, stderr } = await runCLI({
+      ANTHROPIC_API_KEY: '',
+      AGHAST_LOCAL_CLAUDE: '',
+      AGHAST_MOCK_AI: undefined,
+      AGHAST_MOCK_LOCAL_LOGIN: 'false',
+    }, [
+      fixtureRepo,
+      '--config-dir', singleCheckConfigDir,
+      '--runtime-config', runtimeConfig,
+      '--agent-provider', 'claude-code',
+      '--model', 'sonnet',
+    ]);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('ANTHROPIC_API_KEY'));
+    assert.ok(!stderr.includes('Invalid model format "sonnet" for opencode provider'));
+  });
+
+  it('rejects --provider with a hint to use --agent-provider', async () => {
+    const { exitCode, stderr } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--provider', 'claude-code']);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('Unknown option: --provider'));
+    assert.ok(stderr.includes('Did you mean --agent-provider?'));
+  });
+
+  it('rejects unknown scan options', async () => {
+    const { exitCode, stderr } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--modle', 'sonnet']);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('Unknown option: --modle'));
+  });
+
   it('--model flag is accepted (no error)', async () => {
     const { exitCode } = await runCLI({
       AGHAST_MOCK_AI: 'true',
