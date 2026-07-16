@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-empty-instructions",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

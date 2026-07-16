@@ -43,6 +43,13 @@ import {
   readResults,
 } from './cli-test-helpers.js';
 
+const emptyInstructionsConfigDir = resolve(
+  __dirname,
+  'fixtures',
+  'cli-configs',
+  'empty-instructions',
+);
+
 // ─── PASS scenarios ──────────────────────────────────────────────────────────
 
 describe('CLI mock mode: PASS scenarios', () => {
@@ -87,6 +94,21 @@ describe('CLI mock mode: PASS scenarios', () => {
     const { stdout, stderr } = await runCLI({ AGHAST_MOCK_AI: 'true' });
     const combined = stdout + stderr;
     assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Summary banner should show NO ISSUES DETECTED');
+  });
+});
+
+describe('CLI mock mode: invalid check instructions', () => {
+  it('does not run a repository check with an empty instructions file', async () => {
+    const { exitCode, stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', emptyInstructionsConfigDir],
+    );
+
+    assert.equal(exitCode, 1);
+    assert.ok(
+      (stdout + stderr).includes('is empty'),
+      'Should explain that the instructions file is empty',
+    );
   });
 });
 

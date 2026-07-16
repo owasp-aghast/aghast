@@ -423,6 +423,14 @@ describe('loadCheckDetails', () => {
     );
   });
 
+  it('throws on an empty markdown file', async () => {
+    const check = makeCheck({ instructionsFile: 'ai-checks/empty-check.md' });
+    await assert.rejects(
+      loadCheckDetails(check, fixturesDir),
+      /instructions file .* is empty/i,
+    );
+  });
+
   it('resolves instructionsFile relative to basePath', async () => {
     const check = makeCheck({ id: 'rel-check', instructionsFile: 'valid-check.md' });
     const details = await loadCheckDetails(check, aiChecksDir);
@@ -460,6 +468,13 @@ describe('validateCheck', () => {
     const result = await validateCheck(check, fixturesDir);
     assert.ok(!result.valid);
     assert.ok(result.errors.some((e) => e.includes('not found')));
+  });
+
+  it('empty markdown file produces error', async () => {
+    const check = makeCheck({ instructionsFile: 'ai-checks/empty-check.md' });
+    const result = await validateCheck(check, fixturesDir);
+    assert.ok(!result.valid);
+    assert.ok(result.errors.some((e) => e.includes('is empty')));
   });
 
   it('valid check with all optional fields passes', async () => {

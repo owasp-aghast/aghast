@@ -533,6 +533,16 @@ export async function runScan(args: string[]): Promise<void> {
     // instructionsFile is already absolute from resolveChecks — validate against ''
     const validation = await validateCheck(check, '');
     if (!validation.valid) {
+      const emptyInstructionsError = validation.errors.find((error) =>
+        error.includes('Instructions file') && error.includes('is empty')
+      );
+      if (emptyInstructionsError) {
+        console.error(formatError(
+          ERROR_CODES.E2004,
+          `Invalid check "${check.id}": ${emptyInstructionsError}`,
+        ));
+        process.exit(1);
+      }
       logProgress(TAG, `Skipping invalid check "${check.id}": ${validation.errors.join(', ')}`);
       continue;
     }
