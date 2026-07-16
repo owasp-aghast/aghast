@@ -88,6 +88,7 @@ Arguments:
   <repo-path>                Path to the repository to scan
 
 General options:
+  -h, --help                 Show this help message
   --config-dir <path>        Config directory containing checks-config.json,
                              checks/ folder, and optionally runtime-config.json.
                              Required unless AGHAST_CONFIG_DIR is set.
@@ -105,6 +106,7 @@ General options:
   --model <model>            AI model override (e.g. claude-sonnet-4-20250514)
   --agent-provider <name>    Agent provider name (default: claude-code)
   --generic-prompt <file>    Generic prompt template filename in prompts/ dir
+  --runtime-config <path>    Path to runtime config file
   --diff-ref <ref>           Git ref to diff against (e.g. HEAD~1, main, SHA).
                              Auto-activates diff filtering on every check whose
                              discovery supports it, unless the check opts out
@@ -126,7 +128,11 @@ Environment variables:
   AGHAST_LOG_LEVEL            Console log level (CLI --log-level takes precedence)
   AGHAST_LOG_FILE             Log file path (CLI --log-file takes precedence)
   AGHAST_LOG_TYPE             Log file handler type (CLI --log-type takes precedence)
+  AGHAST_MOCK_SARIF           Use a SARIF file instead of running Semgrep or Opengrep
+                              (test/development use only)
+  AGHAST_OPENANT_DATASET      Use a pre-generated OpenAnt dataset JSON file
   AGHAST_DIFF_REF             Git ref to diff against (CLI --diff-ref takes precedence)
+  NO_COLOR                    Set to "1" to disable colored output
 
 Examples:
   aghast scan ./my-repo --config-dir ./my-checks
@@ -154,7 +160,7 @@ function parseArgs(args: string[]): {
   budgetLimitCost?: number;
   budgetLimitTokens?: number;
 } {
-  if (args.length < 1 || args[0] === '--help' || args[0] === '-h') {
+  if (args.length < 1 || args.includes('--help') || args.includes('-h')) {
     console.log(SCAN_HELP);
     process.exit(0);
   }
