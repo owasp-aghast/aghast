@@ -1,0 +1,6 @@
+{
+  "agentProvider": {
+    "name": "opencode",
+    "model": "test-provider/test-model"
+  }
+}

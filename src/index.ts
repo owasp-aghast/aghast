@@ -326,7 +326,18 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
-      // --fail-on-check-failure and --debug are handled above via includes()
+      case '--fail-on-check-failure':
+      case '--debug':
+        // Boolean flags are handled above via includes().
+        break;
+      default: {
+        const arg = args[i];
+        if (arg?.startsWith('--')) {
+          const suggestion = arg === '--provider' ? ' Did you mean --agent-provider?' : '';
+          console.error(formatError(ERROR_CODES.E1002, `Unknown option: ${arg}.${suggestion}`));
+          process.exit(1);
+        }
+      }
     }
   }
 
