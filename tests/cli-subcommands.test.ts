@@ -177,8 +177,57 @@ describe('CLI subcommands: scan delegation', () => {
     );
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes('Usage: aghast scan'), 'Should show scan help');
-    assert.ok(stdout.includes('--config-dir'), 'Should describe --config-dir flag');
-    assert.ok(stdout.includes('--debug'), 'Should describe --debug flag');
+    const scanOptions = [
+      '--help',
+      '--config-dir',
+      '--output',
+      '--output-format',
+      '--fail-on-check-failure',
+      '--debug',
+      '--log-level',
+      '--log-file',
+      '--log-type',
+      '--model',
+      '--agent-provider',
+      '--generic-prompt',
+      '--runtime-config',
+      '--diff-ref',
+      '--diff-file',
+      '--budget-limit-cost',
+      '--budget-limit-tokens',
+    ];
+    for (const option of scanOptions) {
+      assert.ok(stdout.includes(option), `Should describe ${option} flag`);
+    }
+    const environmentVariables = [
+      'ANTHROPIC_API_KEY',
+      'AGHAST_CONFIG_DIR',
+      'AGHAST_AI_MODEL',
+      'AGHAST_GENERIC_PROMPT',
+      'AGHAST_DEBUG',
+      'AGHAST_LOG_LEVEL',
+      'AGHAST_LOG_FILE',
+      'AGHAST_LOG_TYPE',
+      'AGHAST_MOCK_SARIF',
+      'AGHAST_OPENANT_DATASET',
+      'AGHAST_DIFF_REF',
+      'NO_COLOR',
+    ];
+    for (const variable of environmentVariables) {
+      assert.ok(stdout.includes(variable), `Should describe ${variable}`);
+    }
+  });
+
+  it('scan help works after the repository path', async () => {
+    for (const helpFlag of ['--help', '-h']) {
+      const { exitCode, stdout, stderr } = await runCLI(
+        ['scan', fixtureRepo, helpFlag],
+        { AGHAST_MOCK_AI: 'true' },
+      );
+      assert.equal(exitCode, 0, `${helpFlag} should exit successfully`);
+      assert.ok(stdout.includes('Usage: aghast scan'), `${helpFlag} should show scan help`);
+      assert.equal(stderr, '', `${helpFlag} should not report an unknown option`);
+    }
   });
 });
 
