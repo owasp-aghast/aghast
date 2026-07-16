@@ -435,7 +435,12 @@ export async function validateCheck(
     // instructionsFile may already be an absolute path (from resolveChecks)
     const instructionsPath = resolve(basePath, check.instructionsFile);
     try {
-      await access(instructionsPath, constants.R_OK);
+      const markdown = await readFile(instructionsPath, 'utf-8');
+      if (markdown.trim() === '') {
+        errors.push(
+          `Instructions file "${check.instructionsFile}" is empty`,
+        );
+      }
     } catch {
       errors.push(
         `Instructions file "${check.instructionsFile}" not found at "${instructionsPath}"`,
@@ -542,6 +547,11 @@ export async function loadCheckDetails(
     throw new Error(
       `Failed to load instructions file "${check.instructionsFile}": ${err instanceof Error ? err.message : String(err)}`,
       { cause: err },
+    );
+  }
+  if (markdown.trim() === '') {
+    throw new Error(
+      `Instructions file "${check.instructionsFile}" for check "${check.id}" is empty`,
     );
   }
 
