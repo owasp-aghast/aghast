@@ -224,6 +224,14 @@ export class ClaudeCodeProvider implements AgentProvider {
     if (this._listSupportedModelsFn) {
       return await this._listSupportedModelsFn();
     }
+    const mockModels = process.env.AGHAST_MOCK_CLAUDE_MODELS;
+    if (mockModels !== undefined) {
+      return mockModels
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((id) => ({ id }));
+    }
     return await listModelsViaAgentSdk();
   }
 

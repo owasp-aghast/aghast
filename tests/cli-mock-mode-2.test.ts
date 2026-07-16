@@ -185,6 +185,20 @@ describe('CLI: --runtime-config flag', () => {
     }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--runtime-config', absentPath]);
     assert.equal(exitCode, 0);
   });
+
+  it('invalid Claude Code model in runtime config exits before scanning', async () => {
+    const invalidModelPath = resolve(__dirname, 'fixtures', 'runtime-config', 'invalid-claude-model.json');
+    const { exitCode, stdout, stderr } = await runCLI({
+      AGHAST_MOCK_AI: undefined,
+      AGHAST_MOCK_LOCAL_LOGIN: 'true',
+      AGHAST_MOCK_CLAUDE_MODELS: 'haiku,sonnet',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--runtime-config', invalidModelPath]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr, /does not support configured model "claude-code\/junk"/);
+    assert.match(stderr, /Available models: haiku, sonnet/);
+    assert.ok(!stdout.includes('Starting scan'), 'scan should not start with an invalid model');
+  });
 });
 
 // ─── Iteration 7: ERROR and FLAG scenarios ───────────────────────────────────
