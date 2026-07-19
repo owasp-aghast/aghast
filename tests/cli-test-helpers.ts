@@ -7,7 +7,7 @@
 
 import { execFile } from 'node:child_process';
 import { statSync, mkdtempSync, cpSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -210,7 +210,17 @@ export async function readResults(): Promise<Record<string, unknown>> {
  */
 export function createTempRepoCopy(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), `aghast-${prefix}-`));
-  cpSync(fixtureRepo, dir, { recursive: true });
+  cpSync(fixtureRepo, dir, {
+    recursive: true,
+    // Skip scan output. `createScopedHelpers` writes its scoped reports
+    // (security_checks_results_<prefix>.json/.sarif) into the fixture repo, and
+    // those files are created and deleted while other test files run
+    // concurrently. Without this filter, cpSync can enumerate such a file and
+    // then fail with ENOENT when its owning test deletes it before the copy
+    // reaches it. They are build artefacts, not fixture content, so a fresh
+    // copy should not carry them anyway.
+    filter: (src) => !basename(src).startsWith('security_checks_results'),
+  });
   return dir;
 }
 

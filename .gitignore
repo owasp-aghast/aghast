@@ -33,5 +33,5 @@ test-codebases/
 *.ps1
 # Scan output — written into the target repo by default, so a scan run from the
 # repo root (or against a test fixture) drops one here. Easy to commit by
-# accident; see PR #258 which needed a follow-up commit to remove one.
+# accident, so ignore it rather than relying on reviewers to catch it.
 security_checks_results.*
