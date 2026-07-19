@@ -153,6 +153,31 @@ interface ScriptTargetInput {
 }
 
 /**
+ * True when `candidateAbs` lives inside `rootAbs`. Both must be absolute.
+ *
+ * Two ways to be outside, and both matter:
+ *   - a `..` prefix, the ordinary case;
+ *   - an absolute result, which is what `relative()` returns on Windows when
+ *     the two paths are on different drives (`C:\repo` vs `D:\checks`).
+ *
+ * Exported so the rule can be unit-tested against Windows-style paths on any
+ * platform. It exists as a single function because it previously did not: two
+ * call sites implemented the rule separately, one omitted the absolute-path
+ * case, and cross-drive layouts were rejected as a result.
+ *
+ * Pass a `pathApi` of `path.win32` or `path.posix` to test either flavour.
+ */
+export function isInsideRoot(
+  rootAbs: string,
+  candidateAbs: string,
+  pathApi: { relative: (a: string, b: string) => string; isAbsolute: (p: string) => boolean } =
+    { relative, isAbsolute },
+): boolean {
+  const rel = pathApi.relative(rootAbs, candidateAbs);
+  return !rel.startsWith('..') && !pathApi.isAbsolute(rel);
+}
+
+/**
  * Verify that `candidateAbs` (an already-resolved absolute path) lives inside
  * `rootAbs` (also absolute). Throws via `formatError(E2004, ...)` if the
  * candidate escapes the root. Returns void.
@@ -161,8 +186,7 @@ interface ScriptTargetInput {
  * symlink-aware re-check.
  */
 function assertInsideRoot(rootAbs: string, candidateAbs: string, label: string): void {
-  const rel = relative(rootAbs, candidateAbs);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
+  if (!isInsideRoot(rootAbs, candidateAbs)) {
     throw new Error(
       formatError(
         ERROR_CODES.E2004,
@@ -612,7 +636,7 @@ export const scriptDiscovery: TargetDiscovery = {
     // the target repo) — in that case resolveInside(checkBase, ...) above
     // already constrained the script to the check folder.
     const checkBaseAbs = resolve(checkBase);
-    const checkBaseInsideRepo = !relative(repoRoot, checkBaseAbs).startsWith('..');
+    const checkBaseInsideRepo = isInsideRoot(repoRoot, checkBaseAbs);
     if (checkBaseInsideRepo) {
       // re-raise propagates the original E2004-formatted message
       assertInsideRoot(repoRoot, scriptAbs, `[${check.id}] checkTarget.script`);

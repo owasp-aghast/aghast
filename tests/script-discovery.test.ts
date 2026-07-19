@@ -9,12 +9,13 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32, posix } from 'node:path';
 import {
   scriptDiscovery,
   parseScriptOutput,
   runScript,
   buildScriptEnv,
+  isInsideRoot,
 } from '../src/discoveries/script-discovery.js';
 import type { SecurityCheck } from '../src/types.js';
 
@@ -626,5 +627,80 @@ describe('parseScriptOutput: JSON cap (defence in depth)', () => {
     const big = JSON.stringify(Array.from({ length: 100_001 }, (_, i) => `f${i}.ts`));
     const out = parseScriptOutput(big, 'json-array');
     assert.equal(out.length, 100_000);
+  });
+});
+
+describe('isInsideRoot', () => {
+  const win = { relative: win32.relative, isAbsolute: win32.isAbsolute };
+
+  it('accepts a path inside the root', () => {
+    assert.equal(isInsideRoot('/repo', '/repo/checks/demo', posix), true);
+  });
+
+  it('rejects a path escaping via ..', () => {
+    assert.equal(isInsideRoot('/repo', '/elsewhere/checks', posix), false);
+  });
+
+  it('rejects a Windows path on a different drive', () => {
+    // The bug this guards. Across drives `relative()` returns an ABSOLUTE path
+    // rather than a '..' chain, so a check that only looks for '..' concludes
+    // "inside" and the caller then rejects a perfectly valid layout. Asserting
+    // the premise first makes the test self-explanatory when it fails.
+    assert.equal(win32.relative('C:\\repo', 'D:\\checks\\demo').startsWith('..'), false);
+    assert.equal(isInsideRoot('C:\\repo', 'D:\\checks\\demo', win), false);
+  });
+
+  it('accepts a Windows path on the same drive', () => {
+    assert.equal(isInsideRoot('C:\\repo', 'C:\\repo\\checks', win), true);
+  });
+});
+
+describe('scriptDiscovery.discover: check folder outside the repository', () => {
+  // Every other test in this file puts the check folder INSIDE the repo, so the
+  // outside-repo branch went unexercised — and a bug in it reached CI.
+  //
+  // The branch guards a defence-in-depth assertion that the script also lives
+  // under the repo root. That assertion must only apply when the check folder
+  // is itself inside the repo; otherwise a perfectly valid layout is rejected.
+  //
+  // Two real layouts take this branch:
+  //   1. Local dev, where checks-config/ sits beside the target repo (this test).
+  //   2. Windows with the repo and the config dir on different drives, where
+  //      `relative()` returns an absolute path instead of a `..` chain. That is
+  //      not reproducible cross-platform, but it resolves through this same
+  //      branch, so covering the layout here guards both.
+  it('runs a script whose check folder is a sibling of the repo', async () => {
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'aghast-outside-checks-'));
+    try {
+      const outsideCheckDir = join(outsideRoot, 'checks', 'demo');
+      await mkdir(outsideCheckDir, { recursive: true });
+      await writeFile(
+        join(outsideCheckDir, 'list.cjs'),
+        `console.log("src/outside.ts");\n`,
+      );
+
+      const targets = await scriptDiscovery.discover(
+        {
+          id: 'outside-check',
+          name: 'Outside Check',
+          repositories: [],
+          checkDir: outsideCheckDir,
+          instructionsFile: 'demo.md',
+          checkTarget: {
+            type: 'targeted',
+            discovery: 'script',
+            script: 'list.cjs',
+            scriptType: 'node',
+            outputFormat: 'lines',
+          },
+        } as SecurityCheck,
+        repoDir,
+      );
+
+      assert.equal(targets.length, 1);
+      assert.equal(targets[0].file, 'src/outside.ts');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
   });
 });
