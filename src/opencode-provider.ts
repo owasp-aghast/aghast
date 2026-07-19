@@ -498,6 +498,15 @@ export class OpenCodeProvider implements AgentProvider {
     const sseAbort = new AbortController();
     const seenPartStatuses = new Map<string, string>(); // partId → last logged status
 
+    // A `session.error` means the model call itself failed (e.g. "Streaming
+    // response failed"). Whatever `session.prompt()` returns afterwards is
+    // partial or empty, so we abort the wait and fail the target rather than
+    // parsing an untrustworthy response. Failing here is deliberate: the caller
+    // in scan-runner marks the target as errored, which is recoverable and
+    // visible, whereas silently accepting the response reports wrong findings.
+    let sessionError: string | undefined;
+    const promptAbort = new AbortController();
+
     const sseTask = (async () => {
       try {
         const sseResult = await client.event.subscribe(
@@ -556,6 +565,12 @@ export class OpenCodeProvider implements AgentProvider {
             const errData = error?.['data'] as Record<string, unknown> | undefined;
             const message = (errData?.['message'] as string) ?? (error?.['name'] as string) ?? 'unknown error';
             logWarn(TAG, `${prefix}OpenCode session error: ${message}`);
+            // Record the failure and stop waiting. Anything the session produces
+            // after this is partial or empty, and must not be parsed as a result
+            // — doing so previously turned a provider fault into confidently
+            // wrong findings rather than a visible error.
+            if (sessionError === undefined) sessionError = message;
+            promptAbort.abort();
           }
         }
       } catch {
@@ -582,11 +597,29 @@ export class OpenCodeProvider implements AgentProvider {
           schema: OUTPUT_SCHEMA,
         },
         directory: repositoryPath,
+      }, {
+        // Request options are the client's second argument (the same shape
+        // `client.event.subscribe` uses above), not part of the request body.
+        signal: promptAbort.signal,
       });
+    } catch (err) {
+      // If we aborted because of a session error, report that as the cause —
+      // the AbortError itself is our own doing and says nothing useful.
+      if (sessionError !== undefined) {
+        throw new Error(`${prefix}OpenCode session failed: ${sessionError}`, { cause: err });
+      }
+      throw err;
     } finally {
       sseAbort.abort();
       await sseTask;
       clearInterval(heartbeatInterval);
+    }
+
+    // The session may report an error and still resolve normally (the abort can
+    // land after the response is already in flight). Treat it as a failure
+    // either way, so the outcome does not depend on that race.
+    if (sessionError !== undefined) {
+      throw new Error(`${prefix}OpenCode session failed: ${sessionError}`);
     }
 
     let info = promptResult.data?.info;

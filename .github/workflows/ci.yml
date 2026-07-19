@@ -566,8 +566,16 @@ jobs:
         run: |
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }}
-        timeout-minutes: 20
+        # 10 attempts at ~1-3.5 min each; 20 min would kill the job mid-retry.
+        timeout-minutes: 45
 
   build-and-install:
     needs: [check-ci-skip]
