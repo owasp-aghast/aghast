@@ -33,8 +33,45 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--diff-file <path>` | Path to pre-generated unified diff file (alternative to `--diff-ref`) |
 | `--budget-limit-cost <usd>` | Abort the scan when accumulated cost exceeds this USD value (warns at 80%) |
 | `--budget-limit-tokens <n>` | Abort the scan when accumulated tokens exceed this count (warns at 80%) |
+| `--pr <number>` | Pull request number to post findings to as inline review comments (Phase 1, Spec E.7) |
+| `--repo <owner/repo>` | GitHub repository in `owner/repo` form (defaults to `$GITHUB_REPOSITORY`) |
+| `--base-sha <sha>` | Optional base commit SHA (defaults to `$GITHUB_BASE_SHA`) |
+| `--head-sha <sha>` | Optional head commit SHA (defaults to `$GITHUB_HEAD_SHA` then `$GITHUB_SHA`) |
 
 Run `aghast scan --help` for the full list of options.
+
+## Posting Findings to GitHub Pull Requests
+
+Pass `--pr <number> --repo <owner/repo>` to post inline review comments for each
+finding whose location intersects the PR diff. Findings outside the changed
+lines are skipped (logged at `debug` level), and previously posted comments are
+deduplicated using a hidden marker hash so re-running on the same PR is
+idempotent.
+
+Authentication piggybacks on the [`gh` CLI](https://cli.github.com/) — either
+log in with `gh auth login` or set `GH_TOKEN` / `GITHUB_TOKEN` (e.g. the
+GitHub Actions `secrets.GITHUB_TOKEN`). The token is passed through `gh` via
+the environment and is never written to argv or logs.
+
+```bash
+aghast scan ./repo --config-dir ./checks --pr 42 --repo octo/demo
+```
+
+In a GitHub Actions workflow, `--repo` and `--head-sha` can be omitted and the
+defaults from `$GITHUB_REPOSITORY` / `$GITHUB_HEAD_SHA` / `$GITHUB_SHA` will be
+used automatically.
+
+If `gh` is not installed or not authenticated, posting fails with a `[E7201]`
+error but the scan still completes and the JSON/SARIF report is still written —
+the PR comment phase is non-fatal.
+
+> **Concurrency caveat.** Dedup is per-run: two parallel CI shards posting to
+> the same PR can each pass the marker check and produce duplicate comments.
+> Confine `--pr` to a single matrix job (or run after the matrix completes).
+
+> **Phase 1 only.** Issue tracker creation, AI-assisted remediation, IDE/LSP
+> integration, and Slack/email notifications listed in Spec E.7 are deferred
+> to future iterations.
 
 ## Environment Variables
 
