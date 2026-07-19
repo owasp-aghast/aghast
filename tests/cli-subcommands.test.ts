@@ -10,12 +10,20 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unlink, access, readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { createTempRepoCopy } from './cli-test-helpers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliEntry = resolve(__dirname, '..', 'src', 'cli.ts');
-const fixtureRepo = resolve(__dirname, 'fixtures', 'git-repo');
-const outputFile = resolve(fixtureRepo, 'security_checks_results.json');
 const singleCheckConfigDir = resolve(__dirname, 'fixtures', 'cli-configs', 'single-check');
+
+// These tests deliberately omit --output to exercise the default output path,
+// so they cannot be scoped via --output like other CLI suites. Instead this
+// file scans its own private copy of the fixture repo: the default path is
+// still genuinely exercised, but no longer shared with concurrently-running
+// test files (which previously caused intermittent ENOENT when one file's
+// cleanup deleted another's output mid-assertion).
+const fixtureRepo = createTempRepoCopy('subcommands');
+const outputFile = resolve(fixtureRepo, 'security_checks_results.json');
 
 interface CLIResult {
   stdout: string;
