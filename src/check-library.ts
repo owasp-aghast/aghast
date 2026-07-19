@@ -205,6 +205,18 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
     if (ct.diffRef !== undefined && typeof ct.diffRef !== 'string') {
       throw new Error(`Check definition "${defPath}": "checkTarget.diffRef" must be a string`);
     }
+
+    // Validate glob discovery fields
+    if (ct.glob !== undefined && (typeof ct.glob !== 'string' || ct.glob.trim() === '')) {
+      throw new Error(
+        `Check definition "${defPath}": "checkTarget.glob" must be a non-empty string`,
+      );
+    }
+    if (ct.discovery === 'glob' && (typeof ct.glob !== 'string' || ct.glob.trim() === '')) {
+      throw new Error(
+        `Check definition "${defPath}": "checkTarget.glob" must be a non-empty string when discovery is "glob"`,
+      );
+    }
     // Validate openant filter config
     if (ct.openant !== undefined) {
       if (typeof ct.openant !== 'object' || ct.openant === null) {

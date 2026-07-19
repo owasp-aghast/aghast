@@ -27,6 +27,7 @@ import {
   multiTargetCappedConfigDir,
   mixedChecksConfigDir,
   semgrepOnlyConfigDir,
+  globCheckConfigDir,
   cli3TargetsSarif,
   emptyResultsSarif,
   noEndlineSarif,
@@ -1275,6 +1276,55 @@ describe('CLI mock mode: concurrency progress output', () => {
       assert.ok(issue.file, 'Each issue should have a file');
       assert.ok(issue.description, 'Each issue should have a description');
     }
+  });
+});
+
+// ─── Glob discovery (Spec E.2.1) ─────────────────────────────────────────────
+
+describe('CLI mock mode: glob discovery', () => {
+  afterEach(cleanupOutput);
+
+  it('PASS: glob check matches files and AI returns no issues → PASS', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [repoDir, '--config-dir', globCheckConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].checkId, 'aghast-glob-test');
+    assert.equal(checks[0].status, 'PASS');
+    // git-repo fixture has src/example.ts → exactly 1 file matches src/**/*.ts
+    assert.equal(checks[0].targetsAnalyzed, 1, 'Should discover 1 .ts file in src/');
+    assert.equal(summary.passedChecks, 1);
+    assert.equal(summary.totalIssues, 0);
+  });
+
+  it('FAIL: glob check + failing mock response → FAIL with enriched issue', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [repoDir, '--config-dir', globCheckConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const issues = results.issues as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].status, 'FAIL');
+    assert.equal(checks[0].targetsAnalyzed, 1);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].checkId, 'aghast-glob-test');
+    assert.equal(issues[0].checkName, 'Glob Discovery Test');
+    // The glob "src/**/*.ts" should match exactly src/example.ts in the
+    // git-repo fixture — assert the file path so this test fails loudly if
+    // someone adds another .ts file to the fixture (which would silently
+    // change the target set without this assertion).
+    assert.equal(issues[0].file, 'src/example.ts');
   });
 });
 

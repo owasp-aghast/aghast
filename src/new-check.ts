@@ -59,6 +59,7 @@ interface ParsedFlags {
   discovery?: string;
   semgrepRules?: string;
   sarifFile?: string;
+  glob?: string;
   analysisMode?: string;
   maxTargets?: string;
   language?: string;
@@ -82,6 +83,7 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
   '--semgrep-rules': 'semgrepRules',
   '--opengrep-rules': 'semgrepRules',
   '--sarif-file': 'sarifFile',
+  '--glob': 'glob',
   '--analysis-mode': 'analysisMode',
   '--max-targets': 'maxTargets',
   '--language': 'language',
@@ -188,6 +190,7 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     analysisMode: '',
     semgrepRules: '',
     sarifFile: '',
+    glob: '',
     maxTargets: '',
     language: '',
   };
@@ -197,15 +200,22 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
 
   if (result.checkType === 'targeted' || result.checkType === 'static') {
     const discoveryChoices = result.checkType === 'targeted'
-      ? ['semgrep', 'opengrep', 'openant', 'sarif']
+      ? ['semgrep', 'opengrep', 'openant', 'sarif', 'glob']
       : ['semgrep', 'opengrep'];
     result.discovery = await askChoice('Discovery method', discoveryChoices, 'semgrep', flags.discovery);
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
 
     if (result.checkType === 'targeted') {
-      const modeChoices = result.discovery === 'openant'
-        ? ['custom', 'general-vuln-discovery']
-        : ['custom', 'false-positive-validation', 'general-vuln-discovery'];
+      let modeChoices: string[];
+      if (result.discovery === 'openant') {
+        modeChoices = ['custom', 'general-vuln-discovery'];
+      } else if (result.discovery === 'glob') {
+        // glob discovery does not support false-positive-validation (no per-target
+        // finding to validate); offer custom and general-vuln-discovery.
+        modeChoices = ['custom', 'general-vuln-discovery'];
+      } else {
+        modeChoices = ['custom', 'false-positive-validation', 'general-vuln-discovery'];
+      }
       result.analysisMode = await askChoice('Analysis mode', modeChoices, 'custom', flags.analysisMode);
     }
 
@@ -223,6 +233,10 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
       result.sarifFile = flags.sarifFile !== undefined
         ? flags.sarifFile
         : await ask('SARIF file path (relative to target repo, e.g. ./sast-results.sarif)', flags.sarifFile);
+    } else if (result.discovery === 'glob') {
+      result.glob = flags.glob !== undefined
+        ? flags.glob
+        : await ask('Glob pattern (e.g. src/routes/**/*.ts)', flags.glob);
     }
   }
 
@@ -268,7 +282,7 @@ async function loadExistingRegistry(registryPath: string): Promise<RegistryFile>
 }
 
 function validateInputs(
-  inputs: { id: string; severity: string; confidence: string; checkType: string; discovery: string; analysisMode: string; maxTargets: string; language: string; sarifFile: string },
+  inputs: { id: string; severity: string; confidence: string; checkType: string; discovery: string; analysisMode: string; maxTargets: string; language: string; sarifFile: string; glob: string },
 ): string[] {
   const errors: string[] = [];
 
@@ -300,7 +314,7 @@ function validateInputs(
 
   if ((inputs.checkType === 'targeted' || inputs.checkType === 'static') && inputs.checkType) {
     const validDiscoveries = inputs.checkType === 'targeted'
-      ? ['semgrep', 'opengrep', 'openant', 'sarif']
+      ? ['semgrep', 'opengrep', 'openant', 'sarif', 'glob']
       : ['semgrep', 'opengrep'];
     if (!inputs.discovery || !validDiscoveries.includes(inputs.discovery)) {
       errors.push(`Invalid discovery "${inputs.discovery}" for check type "${inputs.checkType}". Must be one of: ${validDiscoveries.join(', ')}`);
@@ -308,11 +322,17 @@ function validateInputs(
     if (inputs.discovery === 'sarif' && !inputs.sarifFile) {
       errors.push('sarifFile is required for sarif discovery');
     }
+    if (inputs.discovery === 'glob' && !inputs.glob) {
+      errors.push('glob pattern is required for glob discovery');
+    }
 
     if (inputs.analysisMode) {
-      const validModes = inputs.discovery === 'openant'
-        ? ['custom', 'general-vuln-discovery']
-        : ['custom', 'false-positive-validation', 'general-vuln-discovery'];
+      let validModes: string[];
+      if (inputs.discovery === 'openant' || inputs.discovery === 'glob') {
+        validModes = ['custom', 'general-vuln-discovery'];
+      } else {
+        validModes = ['custom', 'false-positive-validation', 'general-vuln-discovery'];
+      }
       if (!validModes.includes(inputs.analysisMode)) {
         errors.push(`Invalid analysis mode "${inputs.analysisMode}" for ${inputs.discovery} discovery. Must be one of: ${validModes.join(', ')}`);
       }
@@ -409,6 +429,7 @@ function generateCheckDefinition(inputs: {
   analysisMode: string;
   semgrepRules: string;
   sarifFile: string;
+  glob: string;
   maxTargets: string;
 }): Record<string, unknown> {
   const def: Record<string, unknown> = {
@@ -448,6 +469,8 @@ function generateCheckDefinition(inputs: {
       }
     } else if (inputs.discovery === 'sarif') {
       checkTarget.sarifFile = inputs.sarifFile;
+    } else if (inputs.discovery === 'glob') {
+      checkTarget.glob = inputs.glob;
     }
     if (inputs.analysisMode && inputs.analysisMode !== 'custom') {
       checkTarget.analysisMode = inputs.analysisMode;
@@ -502,6 +525,7 @@ Options:
   --semgrep-rules <paths>    Comma-separated rule file paths (for semgrep/opengrep discovery)
   --opengrep-rules <paths>   Alias for --semgrep-rules; do not pass both (error)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
+  --glob <pattern>           Glob pattern (for glob discovery, e.g. "src/routes/**/*.ts")
   --analysis-mode <mode>     Analysis mode for targeted checks (default: custom). See below
   --max-targets <n>          Maximum number of targets to analyze
   --language <lang>          Language for Semgrep/Opengrep template: python, javascript, typescript
@@ -520,6 +544,7 @@ Discovery mechanisms:
   opengrep    Opengrep (Semgrep fork) rules find targets (targeted or static)
   openant     OpenAnt code analysis finds units (targeted only)
   sarif       External SARIF file provides findings (targeted only)
+  glob        File path glob pattern selects whole-file targets (targeted only)
 
 Analysis modes (targeted checks only):
   custom                      Use a custom instructions markdown file (default)

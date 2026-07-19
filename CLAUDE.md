@@ -21,7 +21,7 @@ Seven core components orchestrated by the Security Scanner:
 2. **Check Library** — Two-layer config: loads check registry from `checks-config.json` (Layer 1: id, repositories, enabled) and per-check definitions from `checks/<id>/<id>.json` (Layer 2: name, instructions, severity, checkTarget) within a config directory specified via `--config-dir`. Merges layers, filters by repository, loads markdown instructions from each check folder.
 3. **Agent Provider** — Abstraction layer over agent SDKs / harnesses that delegate to LLMs (reference impls: Claude Code, OpenCode)
 4. **Repository Analyzer** — Extracts Git metadata (remote URL, branch, commit) from target repos
-5. **Discovery Providers** — Pluggable target discovery system (`src/discovery.ts`): Semgrep, Opengrep, OpenAnt, and SARIF providers find code locations for targeted/static checks. Providers declare whether they support the cross-cutting diff filter step via `supportsDiffFilter`.
+5. **Discovery Providers** — Pluggable target discovery system (`src/discovery.ts`): Semgrep, Opengrep, OpenAnt, SARIF and Glob providers find code locations for targeted/static checks. Providers declare whether they support the cross-cutting diff filter step via `supportsDiffFilter`.
 6. **Diff Filter** — Optional post-discovery transformation (`src/diff-filter.ts`) that narrows any SARIF-producing discovery's output to findings touching a git diff, using OpenAnt's call graph for flow-adjacency. Activated automatically when a diff source is provided; individual checks can opt out via `checkTarget.diffFilter: false`.
 7. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
 
@@ -29,7 +29,7 @@ Seven core components orchestrated by the Security Scanner:
 
 **Check types**: Three check types with pluggable discovery:
 - `repository` — AI analyzes the whole repo (no discovery needed)
-- `targeted` — A discovery method finds specific code locations, AI analyzes each independently. Discovery methods: `semgrep` (Semgrep rules), `opengrep` (Opengrep rules — Semgrep fork, identical rule syntax), `openant` (OpenAnt code units with call graph context), `sarif` (external SARIF file findings)
+- `targeted` — A discovery method finds specific code locations, AI analyzes each independently. Discovery methods: `semgrep` (Semgrep rules), `opengrep` (Opengrep rules — Semgrep fork, identical rule syntax), `openant` (OpenAnt code units with call graph context), `sarif` (external SARIF file findings), `glob` (file path pattern, whole-file targets)
 - `static` — A discovery method finds issues mapped directly to results, no AI involvement. Discovery methods: `semgrep`, `opengrep`
 
 Each targeted/static check specifies `checkTarget.discovery` (e.g., `semgrep`, `opengrep`, `openant`, `sarif`) to select the discovery strategy. Targeted checks can also set `checkTarget.analysisMode` to control what the AI does with each target: `custom` (default, uses `instructionsFile`), `false-positive-validation`, or `general-vuln-discovery` (built-in prompt templates, no `instructionsFile` needed).
@@ -151,7 +151,7 @@ listed instead of its contents.
 
 **Subsystems** — each is a registry plus interchangeable implementations; read the named file for the interface, then the sibling directory for the implementations
 
-- `src/discovery.ts` + `src/discoveries/` — Pluggable target discovery: `DiscoveryProvider` interface, `DiscoveryRegistry`, orchestration. Implementations: semgrep, opengrep, openant, sarif
+- `src/discovery.ts` + `src/discoveries/` — Pluggable target discovery: `DiscoveryProvider` interface, `DiscoveryRegistry`, orchestration. Implementations: semgrep, opengrep, openant, sarif, glob
 - `src/formatters/index.ts` + `src/formatters/` — Output formatter registry and implementations (json, sarif, csv, html); `types.ts` defines the `OutputFormatter` interface
 - `src/provider-registry.ts` + `src/*-provider.ts` — Agent providers (`claude-code-provider.ts`, `opencode-provider.ts`, `mock-agent-provider.ts`); `provider-utils.ts` holds the shared OUTPUT_SCHEMA
 - `src/diff-filter.ts` — Diff filter (`applyDiffFilter`), applied post-discovery whenever a diff source exists and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets using the OpenAnt call graph (depth-1), falling back to file+line overlap (depth-0) when OpenAnt is unavailable. Supported by `diff-parser.ts` and `diff-unit-matcher.ts`

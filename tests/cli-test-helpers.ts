@@ -75,6 +75,7 @@ export const semgrepDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-conf
 export const sarifDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-diff-filter');
 export const openantDiffFilterConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'openant-diff-filter');
 export const fpValidationConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'fp-validation');
+export const globCheckConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'glob-check');
 
 // SARIF fixtures
 export const cli3TargetsSarif = resolve(testDir, 'fixtures', 'sarif', 'cli-3-targets.sarif');

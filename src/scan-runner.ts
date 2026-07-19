@@ -22,6 +22,7 @@ import { openantDiscovery } from './discoveries/openant-discovery.js';
 import { sarifDiscovery } from './discoveries/sarif-discovery.js';
 import { applyDiffFilter } from './diff-filter.js';
 import { runOpenAnt } from './openant-runner.js';
+import { globDiscovery } from './discoveries/glob-discovery.js';
 import type { DiscoveredTarget } from './discovery.js';
 import {
   DEFAULT_MODEL,
@@ -56,6 +57,7 @@ registerDiscovery(semgrepDiscovery);
 registerDiscovery(opengrepDiscovery);
 registerDiscovery(openantDiscovery);
 registerDiscovery(sarifDiscovery);
+registerDiscovery(globDiscovery);
 
 /**
  * Decide whether to apply the diff filter to a check's discovered targets.

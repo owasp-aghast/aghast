@@ -132,6 +132,24 @@ Opengrep can be used as a drop-in replacement for Semgrep: change `discovery: "s
 }
 ```
 
+**Targeted check with glob discovery** (whole-file targets selected by file path pattern):
+
+```json
+{
+  "id": "aghast-route-review",
+  "name": "Route Handler Review",
+  "instructionsFile": "aghast-route-review.md",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "glob",
+    "glob": "src/routes/**/*.ts",
+    "maxTargets": 50
+  }
+}
+```
+
 **Targeted check with OpenAnt discovery** (code units analyzed by AI):
 
 ```json
@@ -182,10 +200,11 @@ Diff filtering works identically for `openant` discovery: the filter narrows the
 | `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
 | `checkTarget`      | `object`                      | No       | Target configuration (omit for repository checks) |
 | `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
-| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `opengrep`, `sarif`, or `openant` (***required for `targeted` and `static` types) |
+| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `opengrep`, `sarif`, `openant`, or `glob` (***required for `targeted` and `static` types) |
 | `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
 | `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `semgrep` or `opengrep` discovery — both tools share the same rule syntax) |
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
+| `checkTarget.glob` | `string`                      | Yes****** | Glob pattern (e.g. `src/routes/**/*.ts`) relative to repository root (******only for `glob` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for targeted checks (default: 5) |
 | `checkTarget.diffFilter` | `boolean`              | No       | Set to `false` to skip diff filtering for this check even when a diff source is available. Default (omitted or `true`): filter automatically whenever a diff source is provided |
@@ -219,6 +238,7 @@ The `discovery` field on `checkTarget` specifies how targets are found for `targ
 | `opengrep` | Opengrep installed | Runs Opengrep (a Semgrep fork with identical rule syntax and SARIF output) — supports `targeted` and `static` check types | Yes |
 | `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
+| `glob` | None | Walks the repository and selects whole-file targets matching a glob pattern (e.g. `src/routes/**/*.ts`). Targeted checks only. Always skips: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `dist`, `build`, `.next`, `.nuxt`, `.cache`, `.idea`, `.vscode`. Files larger than 10 MiB and symlinks are also skipped | No |
 
 ### Diff filtering
 

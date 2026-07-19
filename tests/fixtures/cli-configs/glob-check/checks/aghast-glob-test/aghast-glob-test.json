@@ -1,0 +1,10 @@
+{
+  "id": "aghast-glob-test",
+  "name": "Glob Discovery Test",
+  "instructionsFile": "aghast-glob-test.md",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "glob",
+    "glob": "src/**/*.ts"
+  }
+}
