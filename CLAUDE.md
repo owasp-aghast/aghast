@@ -145,6 +145,7 @@ listed instead of its contents.
 
 - `src/scan-runner.ts` — Security Scanner orchestrator (`runMultiScan` for config-based multi-check; `executeTargetedCheck` for discovery-based checks with concurrent target analysis via `mapWithConcurrency`)
 - `src/check-library.ts` — Check Library: two-layer config loading (`loadCheckRegistry`, `loadCheckDefinition`, `discoverCheckFolders`, `resolveChecks`), validation, repository matching, markdown parsing, path filtering
+- `src/repo-scan.ts` — Cached repository snapshot (file paths, extensions, user tags) used to evaluate `matchCriteria` rules without re-walking the tree per check. Bounded: fixed ignore list plus a depth cap, since it gates which checks run rather than enumerating the repo
 - `src/check-types.ts` — Check type descriptor system; each type (`repository`, `targeted`, `static`) declares its characteristics (needsAI, needsDiscovery, needsInstructions, etc.) in one place
 - `src/types.ts` — Shared type definitions (`ScanResults`, `RepositoryInfo`, `SecurityIssue`, `RuntimeConfig`, …). `ScanMetadata` is deliberately a **closed** type — add explicit fields rather than widening it, so typos fail at compile time
 - `src/ci-metadata.ts` — CI/CD pipeline detection (spec E.4): reads platform env vars for GitHub Actions, GitLab CI and CircleCI into `ScanResults.metadata.ciMetadata`. Read-only and never throws; adding a platform means adding one collector function

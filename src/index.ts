@@ -16,10 +16,12 @@ import {
   loadCheckRegistry,
   discoverCheckFolders,
   resolveChecks,
-  filterChecksForRepository,
+  filterChecksForRepositoryAsync,
+  sortChecksByPriority,
   validateCheck,
   loadCheckDetails,
 } from './check-library.js';
+import { clearRepoSnapshotCache } from './repo-scan.js';
 import { analyzeRepository } from './repository-analyzer.js';
 import { loadRuntimeConfig } from './runtime-config.js';
 import { logProgress, logDebug, setLogLevel, createTimer, isValidLogLevel, initFileHandler, closeAllHandlers, getAvailableLogTypes } from './logging.js';
@@ -508,6 +510,17 @@ export async function runScan(args: string[]): Promise<void> {
   const globalTimer = createTimer();
   const parsed = parseArgs(args);
 
+  // Reset the per-process repo-snapshot cache so back-to-back programmatic
+  // invocations of `runScan` don't reuse a stale filesystem snapshot from a
+  // previous run (e.g. when callers edit the target repo between scans).
+  //
+  // Caveat: the cache is module-scoped, so two `runScan` invocations running
+  // *concurrently* in the same Node process will clobber each other's cached
+  // snapshots — each scan still works correctly, it just won't share the
+  // filesystem walk across invocations. Sequential invocations are the
+  // primary supported pattern.
+  clearRepoSnapshotCache();
+
   // --config-dir is required (CLI flag > AGHAST_CONFIG_DIR env var)
   const rawConfigDir = parsed.configDir || process.env.AGHAST_CONFIG_DIR;
   if (!rawConfigDir) {
@@ -606,7 +619,9 @@ export async function runScan(args: string[]): Promise<void> {
   const repoAnalysis = await analyzeRepository(effectiveRepoPath);
   const repoUrl = repoAnalysis?.repository.remoteUrl ?? effectiveRepoPath;
 
-  const matchingChecks = filterChecksForRepository(allChecks, repoUrl);
+  const filtered = await filterChecksForRepositoryAsync(allChecks, repoUrl, effectiveRepoPath);
+  // Run lower-priority checks first; checks without a priority sort to the end.
+  const matchingChecks = sortChecksByPriority(filtered);
   logProgress(TAG, `Found ${matchingChecks.length} matching checks (of ${allChecks.length} total)`);
 
   if (matchingChecks.length === 0) {

@@ -32,6 +32,7 @@ import {
   fpValidationConfigDir,
   fpValidationFalsePositiveFixture,
   fpValidationTruePositiveFixture,
+  dynamicMatchingConfigDir,
   createScopedHelpers,
 } from './cli-test-helpers.js';
 
@@ -966,5 +967,54 @@ describe('CLI: individual issue files (runtime config)', () => {
     } finally {
       await rm(outputDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ─── Dynamic matching + check ordering (issue #122) ─────────────────────────
+
+describe('CLI mock mode: matchCriteria and priority (issue #122)', () => {
+  afterEach(cleanupOutput);
+
+  it('runs checks in priority order, with un-prioritized checks last; matchCriteria adds matches', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', dynamicMatchingConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const ids = checks.map((c) => c.checkId);
+
+    // Expected order:
+    //   priority 1  → aghast-runs-first
+    //   priority 5  → aghast-criteria-only (matched via .ts hasFileTypes)
+    //   priority 20 → aghast-runs-second
+    //   no priority → aghast-no-priority
+    //
+    // aghast-criteria-skipped is filtered out (looks for .rs files).
+    assert.deepEqual(
+      ids,
+      [
+        'aghast-runs-first',
+        'aghast-criteria-only',
+        'aghast-runs-second',
+        'aghast-no-priority',
+      ],
+      `Unexpected order: ${ids.join(', ')}`,
+    );
+  });
+
+  it('omits checks whose matchCriteria do not match the repo', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', dynamicMatchingConfigDir],
+    );
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.ok(
+      !checks.some((c) => c.checkId === 'aghast-criteria-skipped'),
+      'aghast-criteria-skipped should be filtered (no .rs files in fixture repo)',
+    );
   });
 });
