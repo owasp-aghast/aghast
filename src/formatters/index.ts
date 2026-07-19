@@ -5,12 +5,16 @@
 import type { OutputFormatter } from './types.js';
 import { JsonFormatter } from './json-formatter.js';
 import { SarifFormatter } from './sarif-formatter.js';
+import { CsvFormatter } from './csv-formatter.js';
+import { HtmlFormatter } from './html-formatter.js';
 
 export type { OutputFormatter } from './types.js';
 
 const formatters = new Map<string, OutputFormatter>([
   ['json', new JsonFormatter()],
   ['sarif', new SarifFormatter()],
+  ['csv', new CsvFormatter()],
+  ['html', new HtmlFormatter()],
 ]);
 
 /** Returns the formatter for the given ID, or throws listing available formats. */

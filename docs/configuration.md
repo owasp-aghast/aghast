@@ -335,7 +335,7 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `agentProvider.name`            | `string`   | `claude-code` | Agent provider name (`claude-code` or `opencode`) |
 | `agentProvider.model`           | `string`   | (provider default) | Model ID override. For `opencode`, use `providerID/modelID` format (e.g. `opencode/nemotron-3-super-free`) |
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
-| `reporting.outputFormat`        | `string`   | `json` | Output format: `json` or `sarif` |
+| `reporting.outputFormat`        | `string`   | `json` | Output format: `json`, `sarif`, `csv`, or `html` (see [Scanning › Output Formats](scanning.md#output-formats)) |
 | `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |
 | `logging.logType`               | `string`   | `file` | Log file handler type. Pluggable; currently only `file` is supported |
 | `logging.level`                 | `string`   | `info` | Console log level: `error`, `warn`, `info`, `debug`, `trace` |

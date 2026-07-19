@@ -76,9 +76,11 @@ jobs:
           fi
 
           # ── Push path ────────────────────────────────────────────────────
-          # Find the merged PR that produced this commit
-          PR_NUM=$(gh pr list --state merged --json number,mergeCommit \
-            --jq ".[] | select(.mergeCommit.oid == \"$COMMIT_SHA\") | .number")
+          # Find the merged PR that produced this commit.  Query the commit
+          # association directly: `gh pr list` defaults to 30 results, so it
+          # can miss a PR that has been open for a while before merging.
+          PR_NUM=$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA/pulls" \
+            --jq '.[] | select(.merged_at != null) | .number')
 
           if [ -z "$PR_NUM" ]; then
             # Direct push: skip if only markdown files changed and last CI run passed
