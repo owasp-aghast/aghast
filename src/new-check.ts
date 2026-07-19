@@ -269,16 +269,11 @@ async function loadExistingRegistry(registryPath: string): Promise<RegistryFile>
 
 function validateInputs(
   inputs: { id: string; severity: string; confidence: string; checkType: string; discovery: string; analysisMode: string; maxTargets: string; language: string; sarifFile: string },
-  registry: RegistryFile,
 ): string[] {
   const errors: string[] = [];
 
   if (!inputs.id) {
     errors.push('Check ID is required');
-  }
-
-  if (registry.checks.some((c) => c.id === inputs.id)) {
-    errors.push(`Check ID "${inputs.id}" already exists in config`);
   }
 
   const validSeverities = ['critical', 'high', 'medium', 'low', 'informational'];
@@ -573,7 +568,7 @@ export async function runNewCheck(args: string[]): Promise<void> {
     registry = emptyRegistry;
   }
 
-  const validationErrors = validateInputs(inputs, registry);
+  const validationErrors = validateInputs(inputs);
   if (validationErrors.length > 0) {
     for (const err of validationErrors) {
       console.error(formatError(ERROR_CODES.E2004, err));
@@ -587,6 +582,14 @@ export async function runNewCheck(args: string[]): Promise<void> {
     console.error(formatError(ERROR_CODES.E2004, `Check folder already exists: ${checkFolder}`));
     process.exit(1);
   }
+
+  const isAlreadyRegistered = registry.checks.some((check) => check.id === inputs.id);
+  if (isAlreadyRegistered) {
+    console.warn(
+      `Check ID "${inputs.id}" already exists in checks-config.json; creating the missing check files without changing its registry entry.`,
+    );
+  }
+
   await mkdir(checkFolder, { recursive: true });
 
   // Generate and write check.json (Layer 2)
@@ -623,10 +626,12 @@ export async function runNewCheck(args: string[]): Promise<void> {
   }
 
   // Update registry (Layer 1)
-  const registryEntry = generateRegistryEntry(inputs);
-  registry.checks.push(registryEntry as RegistryFile['checks'][number]);
-  await writeFile(registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8');
-  console.log(`Updated: ${registryPath}`);
+  if (!isAlreadyRegistered) {
+    const registryEntry = generateRegistryEntry(inputs);
+    registry.checks.push(registryEntry as RegistryFile['checks'][number]);
+    await writeFile(registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8');
+    console.log(`Updated: ${registryPath}`);
+  }
 
   console.log(`\nNew check "${inputs.id}" created successfully.`);
 }
