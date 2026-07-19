@@ -33,6 +33,112 @@ function successResult(): Record<string, unknown> {
 }
 
 describe('ClaudeCodeProvider: API error handling', () => {
+  it('rejects an unsupported configured model before executing a check', async () => {
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => [{ id: 'haiku' }, { id: 'sonnet' }],
+    });
+
+    await assert.rejects(
+      () => provider.initialize({ apiKey: 'test-key', model: 'not-a-model' }),
+      (err: Error) => {
+        assert.ok(err instanceof FatalProviderError, 'Should be FatalProviderError');
+        assert.match(err.message, /does not support configured model "not-a-model"/);
+        assert.match(err.message, /Available models: haiku, sonnet/);
+        return true;
+      },
+    );
+  });
+
+  it('skips preflight validation when Claude Code cannot list supported models', async () => {
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => {
+        throw new Error('model endpoint unavailable');
+      },
+    });
+
+    await provider.initialize({ apiKey: 'test-key', model: 'not-a-model' });
+  });
+
+  it('does not list models when no model override is configured', async () => {
+    let modelListCalls = 0;
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => {
+        modelListCalls++;
+        return [{ id: 'haiku' }];
+      },
+    });
+
+    await provider.initialize({ apiKey: 'test-key' });
+    assert.equal(modelListCalls, 0);
+  });
+
+  it('lists available models when the SDK rejects the configured model', async () => {
+    const provider = new ClaudeCodeProvider({
+      _queryFn: createFakeQueryFn([
+        {
+          type: 'result',
+          subtype: 'error',
+          errors: ['Invalid model "not-a-model"'],
+        },
+      ]),
+      _listModelsFn: async () => [
+        { id: 'haiku' },
+        { id: 'sonnet' },
+        { id: 'opus' },
+      ],
+      _listSupportedModelsFn: async () => [{ id: 'not-a-model' }],
+    });
+    await provider.initialize({ apiKey: 'test-key', model: 'not-a-model' });
+
+    await assert.rejects(
+      () => provider.executeCheck('test prompt', '/tmp/repo'),
+      (err: Error) => {
+        assert.ok(err instanceof FatalProviderError, 'Should be FatalProviderError');
+        assert.match(err.message, /rejected model "not-a-model"/i);
+        assert.match(err.message, /Available models: haiku, sonnet, opus/);
+        return true;
+      },
+    );
+  });
+
+  it('preserves an invalid-model error when listing models fails', async () => {
+    const provider = new ClaudeCodeProvider({
+      _queryFn: createFakeQueryFn([
+        {
+          type: 'result',
+          subtype: 'error',
+          errors: ['Model not found: not-a-model'],
+        },
+      ]),
+      _listModelsFn: async () => {
+        throw new Error('model endpoint unavailable');
+      },
+      _listSupportedModelsFn: async () => [{ id: 'not-a-model' }],
+    });
+    await provider.initialize({ apiKey: 'test-key', model: 'not-a-model' });
+
+    await assert.rejects(
+      () => provider.executeCheck('test prompt', '/tmp/repo'),
+      /Could not retrieve available models: model endpoint unavailable/,
+    );
+  });
+
+  it('lists available models for invalid-model API error messages', async () => {
+    const provider = new ClaudeCodeProvider({
+      _queryFn: createFakeQueryFn([
+        assistantMsg('API Error: 400 invalid model "not-a-model"'),
+      ]),
+      _listModelsFn: async () => [{ id: 'haiku' }, { id: 'sonnet' }],
+      _listSupportedModelsFn: async () => [{ id: 'not-a-model' }],
+    });
+    await provider.initialize({ apiKey: 'test-key', model: 'not-a-model' });
+
+    await assert.rejects(
+      () => provider.executeCheck('test prompt', '/tmp/repo'),
+      /Available models: haiku, sonnet/,
+    );
+  });
+
   it('throws after 3 consecutive API error turns', async () => {
     const errorText =
       'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"workspace limits reached"}}';
@@ -709,4 +815,3 @@ describe('ClaudeCodeProvider: authentication resolution', () => {
     });
   });
 });
-

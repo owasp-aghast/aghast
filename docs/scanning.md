@@ -62,6 +62,8 @@ aghast supports multiple agent providers via the `--agent-provider` flag or `age
 | Claude Code (default) | `claude-code` | Model name (e.g. `haiku`, `sonnet`) | `ANTHROPIC_API_KEY` env var, or a logged-in local Claude session |
 | OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/nemotron-3-super-free`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
 
+When an explicit Claude Code model is configured, aghast validates it before scanning and prints the models available to the active credentials if it is unsupported. Use `aghast build-config` interactively to select from the same list.
+
 ### Using OpenCode
 
 [Click for a video introduction to OpenCode support.](https://youtu.be/NkOc6pLanmQ)

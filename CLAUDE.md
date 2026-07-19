@@ -116,6 +116,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
 - `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
 - `AGHAST_MOCK_LOCAL_LOGIN` — Test hook for the Claude Code provider's local-login probe: `true` reports a logged-in session, `false` reports not-logged-in, both without spawning the agent SDK (keeps CLI auth tests hermetic)
+- `AGHAST_MOCK_CLAUDE_MODELS` — Test hook for the Claude Code provider's supported-model list: comma-separated model IDs, used to keep CLI model-validation tests hermetic
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
 - `NO_COLOR` — Set to `1` to disable colored CLI output (standard; respected automatically by `picocolors`)
 

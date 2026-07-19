@@ -143,7 +143,9 @@ describe('AgentProvider interface compliance — ClaudeCodeProvider', () => {
   });
 
   it('initialize() stores model correctly (getModelName returns configured model)', async () => {
-    const provider = new ClaudeCodeProvider();
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => [{ id: 'claude-opus-4-6' }],
+    });
     await provider.initialize({ apiKey: 'test-key', model: 'claude-opus-4-6' });
     assert.equal(provider.getModelName(), 'claude-opus-4-6');
   });

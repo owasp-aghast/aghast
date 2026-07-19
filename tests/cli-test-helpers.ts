@@ -132,6 +132,7 @@ export async function runCLI(
   const dotenvDefaults: Record<string, string | undefined> = {
     AGHAST_LOCAL_CLAUDE: undefined,
     AGHAST_MOCK_AI: undefined,
+    AGHAST_MOCK_CLAUDE_MODELS: undefined,
     CLAUDE_CONFIG_DIR: undefined,
     AGHAST_CONFIG_DIR: '',
     AGHAST_GENERIC_PROMPT: undefined,

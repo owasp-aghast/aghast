@@ -1,0 +1,6 @@
+{
+  "agentProvider": {
+    "name": "claude-code",
+    "model": "claude-code/junk"
+  }
+}
