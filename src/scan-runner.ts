@@ -34,6 +34,7 @@ import {
   type CheckDetails,
   type SecurityCheck,
   type ScanResults,
+  type ScanMetadata,
   type ScanSummary,
   type TokenUsage,
   type ValidationRecord,
@@ -41,6 +42,7 @@ import {
 import { calculateCost, type PricingConfig, type CostBreakdown } from './cost-calculator.js';
 import { checkBudget, BudgetExceededError, type BudgetLimits } from './budget.js';
 import type { ScanRecord } from './scan-history.js';
+import { collectCIMetadata } from './ci-metadata.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TAG = 'scan';
@@ -1330,6 +1332,11 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
   // Aggregate token usage across all checks
   const aggregateTokenUsage = sumTokenUsage(allCheckSummaries.map((c) => c.tokenUsage));
 
+  // Spec E.4: capture CI/CD pipeline context when running in a supported CI
+  // environment. Returns undefined locally so we omit `metadata` entirely.
+  const ciMetadata = collectCIMetadata();
+  const metadata: ScanMetadata | undefined = ciMetadata ? { ciMetadata } : undefined;
+
   const results: ScanResults = {
     scanId,
     timestamp: startTime.toISOString(),
@@ -1346,6 +1353,7 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
       ? { name: agentProviderName ?? DEFAULT_PROVIDER_NAME, models: modelsUsed.size > 0 ? [...modelsUsed] : [DEFAULT_MODEL] }
       : { name: 'none', models: [] },
     tokenUsage: aggregateTokenUsage,
+    ...(metadata ? { metadata } : {}),
   };
 
   // Attach cost metadata when pricing was provided.

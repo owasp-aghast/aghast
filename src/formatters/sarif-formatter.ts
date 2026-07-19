@@ -4,7 +4,7 @@
  * code scanning UIs (e.g. GitHub Code Scanning) and SARIF viewers.
  */
 
-import type { ScanResults, SecurityIssue, DataFlowStep, ValidationRecord } from '../types.js';
+import type { ScanResults, SecurityIssue, DataFlowStep, ValidationRecord, CIMetadata } from '../types.js';
 import type { OutputFormatter } from './types.js';
 
 /** Maps aghast severity to SARIF result level. */
@@ -70,6 +70,15 @@ interface SarifResult {
   suppressions?: SarifSuppression[];
 }
 
+/**
+ * SARIF invocation entry. We only populate it when CI metadata is available
+ * (spec E.4) so SARIF output stays minimal for local runs.
+ */
+interface SarifInvocation {
+  executionSuccessful: boolean;
+  properties?: Record<string, string>;
+}
+
 interface SarifLog {
   $schema: string;
   version: string;
@@ -81,6 +90,7 @@ interface SarifLog {
         rules: SarifRule[];
       };
     };
+    invocations?: SarifInvocation[];
     results: SarifResult[];
   }>;
 }
@@ -98,6 +108,7 @@ export class SarifFormatter implements OutputFormatter {
     if (results.validations) {
       sarifResults.push(...this.buildValidationResults(results.validations));
     }
+    const invocations = this.buildInvocations(results);
 
     const sarif: SarifLog = {
       $schema: 'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json',
@@ -111,12 +122,31 @@ export class SarifFormatter implements OutputFormatter {
               rules,
             },
           },
+          ...(invocations ? { invocations } : {}),
           results: sarifResults,
         },
       ],
     };
 
     return JSON.stringify(sarif, null, 2);
+  }
+
+  /**
+   * Map CI/CD metadata (spec E.4) to a single SARIF invocation entry. The
+   * `properties` bag is the conventional location for non-standard run
+   * context in SARIF; we use stable, namespaced keys (`aghast.<field>`) so
+   * downstream consumers can rely on the shape.
+   */
+  private buildInvocations(results: ScanResults): SarifInvocation[] | undefined {
+    const ci: CIMetadata | undefined = results.metadata?.ciMetadata;
+    if (!ci) return undefined;
+    const properties: Record<string, string> = {};
+    if (ci.jobUrl) properties['aghast.ciJobUrl'] = ci.jobUrl;
+    if (ci.branch) properties['aghast.ciBranch'] = ci.branch;
+    if (ci.pipelineSource) properties['aghast.ciPipelineSource'] = ci.pipelineSource;
+    if (ci.jobStartedAt) properties['aghast.ciJobStartedAt'] = ci.jobStartedAt;
+    if (Object.keys(properties).length === 0) return undefined;
+    return [{ executionSuccessful: true, properties }];
   }
 
   private buildRules(results: ScanResults): SarifRule[] {
