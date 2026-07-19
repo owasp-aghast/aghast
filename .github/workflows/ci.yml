@@ -1,15 +1,15 @@
 name: CI
 
+# NOTE: deliberately no `paths-ignore`. Doc-only and agent-config-only changes
+# are short-circuited by the `check-ci-skip` job below, which skips every
+# expensive job while still letting the *-gate jobs report success. Using
+# `paths-ignore` instead would stop the workflow from running at all, so the
+# required status checks (lint, test-gate, build-and-install-gate,
+# integration-gate) would never report and such PRs could never be merged.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '.claude/**'
-      - 'CLAUDE.md'
   pull_request:
-    paths-ignore:
-      - '.claude/**'
-      - 'CLAUDE.md'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,9 +25,17 @@ jobs:
   # Skip CI when it would be redundant:
   #   Push:  merged PR whose checks already passed (safe because branch protection
   #          requires PRs to be up-to-date with main before merging).
-  #          Direct pushes that only touch .md files also skip when the last CI
-  #          run on the branch passed.
-  #   PR:    only .md files changed AND the last CI run on the base branch passed.
+  #          Direct pushes that only touch docs/agent config also skip when the
+  #          last CI run on the branch passed.
+  #   PR:    only docs/agent config changed AND the last CI run on the base
+  #          branch passed.
+  #
+  # "Docs/agent config" = any *.md file, plus anything under .claude/. When the
+  # skip fires, every expensive job below is skipped by its `if:` guard, but the
+  # *-gate jobs still run and exit 0, so required status checks report success.
+  # If this job itself errors, `continue-on-error` leaves `skip` unset, which
+  # the guards read as "run CI" — the failure mode is a redundant full run, not
+  # a false green.
   check-ci-skip:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -50,13 +58,15 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             PR_NUM="${{ github.event.pull_request.number }}"
 
-            NON_MD=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json files \
-              --jq '[.files[].path | select(test("\\.md$") | not)] | length')
+            # "Non-code" = markdown anywhere, plus agent config under .claude/.
+            # These cannot affect build or test outcomes.
+            NON_CODE=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json files \
+              --jq '[.files[].path | select((test("\\.md$") or test("^\\.claude/")) | not)] | length')
             TOTAL=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json files \
               --jq '.files | length')
 
-            if [ "$NON_MD" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
-              echo "PR #$PR_NUM only changes markdown files ($TOTAL file(s)) — checking base branch CI"
+            if [ "$NON_CODE" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
+              echo "PR #$PR_NUM only changes docs/agent config ($TOTAL file(s)) — checking base branch CI"
               BASE_REF="${{ github.base_ref }}"
               LAST=$(gh run list --repo "$GH_REPO" --workflow=ci.yml \
                 --branch="$BASE_REF" --limit=1 \
@@ -69,7 +79,7 @@ jobs:
                 echo "skip=false" >> "$GITHUB_OUTPUT"
               fi
             else
-              echo "PR #$PR_NUM has $NON_MD non-markdown change(s) — running CI"
+              echo "PR #$PR_NUM has $NON_CODE code change(s) — running CI"
               echo "skip=false" >> "$GITHUB_OUTPUT"
             fi
             exit 0
@@ -83,18 +93,18 @@ jobs:
             --jq '.[] | select(.merged_at != null) | .number')
 
           if [ -z "$PR_NUM" ]; then
-            # Direct push: skip if only markdown files changed and last CI run passed
-            NON_MD=$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA" \
-              --jq '[.files[].filename | select(test("\\.md$") | not)] | length' \
+            # Direct push: skip if only docs/agent config changed and last CI run passed
+            NON_CODE=$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA" \
+              --jq '[.files[].filename | select((test("\\.md$") or test("^\\.claude/")) | not)] | length' \
               2>/dev/null || echo "1")
-            if [ "$NON_MD" = "0" ]; then
+            if [ "$NON_CODE" = "0" ]; then
               BRANCH="${{ github.ref_name }}"
               LAST=$(gh run list --repo "$GH_REPO" --workflow=ci.yml \
                 --branch="$BRANCH" --limit=5 \
                 --json conclusion,headSha \
                 --jq "[.[] | select(.headSha != \"$COMMIT_SHA\")] | .[0].conclusion // \"none\"")
               if [ "$LAST" = "success" ]; then
-                echo "Direct push with only markdown changes, last CI passed — skipping"
+                echo "Direct push with only docs/agent config changes, last CI passed — skipping"
                 echo "skip=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi

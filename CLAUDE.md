@@ -79,9 +79,9 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 - `npm run build` — Compile TypeScript
 - `npm run lint` — Run ESLint on src/ and tests/
 - `npm run lint:fix` — Run ESLint with auto-fix on src/ and tests/
-- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--agent-provider <name>] [--generic-prompt <file>] [--runtime-config <path>] [--diff-ref <ref>] [--diff-file <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, Opengrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Providing `--diff-ref`/`--diff-file`/`AGHAST_DIFF_REF` enables diff filtering on supporting discoveries automatically. Precedence: CLI flags > env vars > runtime config > defaults.
+- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif|csv|html] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--agent-provider <name>] [--generic-prompt <file>] [--runtime-config <path>] [--diff-ref <ref>] [--diff-file <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, Opengrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Providing `--diff-ref`/`--diff-file`/`AGHAST_DIFF_REF` enables diff filtering on supporting discoveries automatically. Precedence: CLI flags > env vars > runtime config > defaults.
 - `npm run new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
-- `npm run build-config -- --config-dir <path> [--non-interactive] [--provider <name>] [--model <id>] [--output-format json|sarif] [--log-level <level>] [--diff-ref <ref>] [--clear <field>] ...` — Build or edit `runtime-config.json`. Interactive when no value flags are given; non-interactive when `--non-interactive` is passed (or when all needed values come from flags). Loads existing config so omitted fields stay untouched. Models come from `provider.listModels()`: the Claude Code provider tries `@anthropic-ai/sdk` `models.list()` first when `ANTHROPIC_API_KEY` is set (full canonical list with display names), then falls back to `claude-agent-sdk` `supportedModels()` (curated 3 aliases — works with `AGHAST_LOCAL_CLAUDE=true`).
+- `npm run build-config -- --config-dir <path> [--non-interactive] [--provider <name>] [--model <id>] [--output-format json|sarif|csv|html] [--log-level <level>] [--diff-ref <ref>] [--clear <field>] ...` — Build or edit `runtime-config.json`. Interactive when no value flags are given; non-interactive when `--non-interactive` is passed (or when all needed values come from flags). Loads existing config so omitted fields stay untouched. Models come from `provider.listModels()`: the Claude Code provider tries `@anthropic-ai/sdk` `models.list()` first when `ANTHROPIC_API_KEY` is set (full canonical list with display names), then falls back to `claude-agent-sdk` `supportedModels()` (curated 3 aliases — works with `AGHAST_LOCAL_CLAUDE=true`).
 
 ## Check Definitions (External)
 
@@ -128,62 +128,47 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 
 ## Key Files
 
-- `src/cli.ts` — Unified CLI entry point with subcommand router (`scan`, `new-check`, `--help`, `--version`)
-- `src/index.ts` — Scan CLI entry point and argument parsing (exports `runScan(args)`); validates config dir structure
+**This list is deliberately not exhaustive.** It maps entry points and subsystem
+boundaries — the things that are hard to infer by looking. Individual leaf files
+are discoverable by glob and are intentionally omitted; please do not expand
+this into a mirror of the filesystem, which drifts out of date faster than it
+earns its keep. Where a directory's files are homogeneous, the directory is
+listed instead of its contents.
+
+**Entry points**
+
+- `src/cli.ts` — Unified CLI entry point with subcommand router (`scan`, `new-check`, `build-config`, `stats`, `--help`, `--version`)
+- `src/index.ts` — Scan entry point and argument parsing (exports `runScan(args)`); validates config dir structure
+- `src/new-check.ts`, `src/build-config.ts`, `src/stats.ts` — The other three subcommands; each exports a `run*(args)` function and is usable programmatically
+
+**Core scan pipeline**
+
 - `src/scan-runner.ts` — Security Scanner orchestrator (`runMultiScan` for config-based multi-check; `executeTargetedCheck` for discovery-based checks with concurrent target analysis via `mapWithConcurrency`)
-- `src/discovery.ts` — Pluggable discovery abstraction: `DiscoveryProvider` interface, `DiscoveryRegistry`, and discovery orchestration
-- `src/discoveries/semgrep-discovery.ts` — Semgrep discovery provider (runs Semgrep rules, parses SARIF output into targets)
-- `src/discoveries/opengrep-discovery.ts` — Opengrep discovery provider (runs Opengrep rules — identical SARIF output to Semgrep)
-- `src/discoveries/openant-discovery.ts` — OpenAnt discovery provider (runs OpenAnt to extract code units with call graph context)
-- `src/discoveries/sarif-discovery.ts` — SARIF discovery provider (reads external SARIF files for AI validation)
-- `src/discoveries/sarif-target-enrichment.ts` — Shared prompt enrichment helper used by semgrep and opengrep discovery providers
-- `src/diff-filter.ts` — Diff filter (`applyDiffFilter`); called post-discovery whenever a diff source is available and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets to diff scope using OpenAnt call graph (depth-1), or falls back to file+line overlap (depth-0) when OpenAnt is unavailable
-- `src/diff-parser.ts` — Unified diff parsing (`parseDiff`, `getDiff`, `loadDiffFromFile`)
-- `src/diff-unit-matcher.ts` — Unit-to-diff matching with call graph traversal (`findTouchedUnits`, `filterFindingsByScope`)
-- `src/claude-code-provider.ts` — Claude Code agent provider implementation using `@anthropic-ai/claude-agent-sdk`
-- `src/opencode-provider.ts` — OpenCode agent provider implementation using `@opencode-ai/sdk` (supports 75+ LLM providers)
-- `src/provider-utils.ts` — Shared provider utilities (OUTPUT_SCHEMA for structured output)
-- `src/prompt-template.ts` — Prompt builder (prepends generic instructions to check markdown)
-- `src/snippet-extractor.ts` — Code snippet extractor (extracts lines from source files for issue enrichment)
-- `src/sarif-parser.ts` — SARIF 2.1.0 parser (`parseSARIF`, `deduplicateTargets`, `limitTargets`)
-- `src/semgrep-runner.ts` — Semgrep execution with mock support (`runSemgrep`, `buildSemgrepArgs`); also exports the shared `runSarifScanner`/`verifySarifScannerInstalled` helpers used by the opengrep runner
-- `src/opengrep-runner.ts` — Opengrep execution with mock support (`runOpengrep`, `verifyOpengrepInstalled`); delegates to the shared helpers in `semgrep-runner.ts`
-- `src/openant-runner.ts` — OpenAnt execution with mock support (runs OpenAnt CLI, parses output)
-- `src/openant-loader.ts` — OpenAnt dataset loading, unit filtering, and prompt formatting. Uses base datasets (`dataset.json`) not enhanced — the AI forms its own security judgment
-- `src/check-types.ts` — Check type descriptor system; each check type (`repository`, `targeted`, `static`) declares its characteristics (needsAI, needsDiscovery, needsInstructions, etc.) in one place
 - `src/check-library.ts` — Check Library: two-layer config loading (`loadCheckRegistry`, `loadCheckDefinition`, `discoverCheckFolders`, `resolveChecks`), validation, repository matching, markdown parsing, path filtering
-- `src/repository-analyzer.ts` — Git metadata extraction (remote URL, branch, commit)
-- `src/response-parser.ts` — AI response JSON parser
-- `src/types.ts` — Shared type definitions (ScanResults, RepositoryInfo, SecurityIssue, etc.); includes `RuntimeConfig`
-- `src/error-codes.ts` — Trackable error codes and formatting helpers (`formatError`, `formatFatalError`)
-- `src/colors.ts` — Color helpers for CLI output (wraps `picocolors`, respects `NO_COLOR`)
-- `src/logging.ts` — Pluggable logging system with standard levels (`error`, `warn`, `info`, `debug`, `trace`), `LogHandler` interface, `ConsoleHandler`, `FileHandler`, handler registry
-- `src/runtime-config.ts` — Runtime configuration loader (`loadRuntimeConfig`); supports `--runtime-config` CLI flag
-- `src/cost-calculator.ts` — Cost estimator: maps token usage to USD using `config/pricing.json` (mergeable with runtime-config `pricing` section)
-- `src/scan-history.ts` — Persisted scan-history (`~/.aghast/history.json`): `saveScanRecord`, `queryScanHistory`. Tolerates corrupt files; falls back to `.aghast-history.json` when no homedir
-- `src/budget.ts` — Budget controls: `checkBudget` (per-scan + per-period day/week/month limits) and `BudgetExceededError` (raised by scan-runner to abort)
-- `src/stats.ts` — `aghast stats` subcommand (cost summary table from history)
-- `config/pricing.json` — Built-in per-model pricing seed (Haiku/Sonnet/Opus)
-- `src/new-check.ts` — Check scaffolding CLI utility (exports `runNewCheck(args)`); bootstraps config directory
-- `src/build-config.ts` — Runtime-config builder CLI utility (exports `runBuildConfig(args)`); supports interactive + flag-driven modes, loads + edits existing files, validates against closed lists from provider/formatter/logging registries
-- `src/formatters/index.ts` — Formatter registry
-- `src/formatters/json-formatter.ts` — JSON output formatter
-- `src/formatters/sarif-formatter.ts` — SARIF output formatter
-- `src/formatters/types.ts` — Formatter type definitions
-- `.github/workflows/release.yml` — Unified release workflow handling both stable (`x.y.z`) and prerelease (`x.y.z-<id>.<n>`) versions; auto-detects the flow from the input format
-- `.github/release-actions/` — Composite actions used by `release.yml` (CI-wait polling, build/pack/sign)
-- `eslint.config.js` — ESLint flat config (TypeScript + recommended rules)
-- `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`); includes `false-positive-validation.md` and `general-vuln-discovery.md` used when `analysisMode` is set in check definitions
-- `docs/README.md` — Documentation index
-- `docs/getting-started.md` — Getting started guide (installation, setup)
-- `docs/trying-it-out.md` — Example checks walkthrough and first scan guide
-- `docs/scanning.md` — Scan command reference (CLI options, env vars, output formats)
-- `docs/creating-checks.md` — Creating checks reference (new-check CLI, what gets created)
-- `docs/configuration.md` — Full configuration reference (check types, Layer 1/2 schemas, runtime config)
-- `docs/development.md` — Development setup, building, testing, releasing
-- `tests/` — All test files with fixtures in `tests/fixtures/`
-- `tests/openant-integration.itest.ts` — Real OpenAnt integration tests (requires OpenAnt + Python 3.11+)
-- `tests/opengrep-integration.itest.ts` — Real Opengrep integration tests (requires Opengrep installed)
+- `src/check-types.ts` — Check type descriptor system; each type (`repository`, `targeted`, `static`) declares its characteristics (needsAI, needsDiscovery, needsInstructions, etc.) in one place
+- `src/types.ts` — Shared type definitions (`ScanResults`, `RepositoryInfo`, `SecurityIssue`, `RuntimeConfig`, …)
+
+**Subsystems** — each is a registry plus interchangeable implementations; read the named file for the interface, then the sibling directory for the implementations
+
+- `src/discovery.ts` + `src/discoveries/` — Pluggable target discovery: `DiscoveryProvider` interface, `DiscoveryRegistry`, orchestration. Implementations: semgrep, opengrep, openant, sarif
+- `src/formatters/index.ts` + `src/formatters/` — Output formatter registry and implementations (json, sarif, csv, html); `types.ts` defines the `OutputFormatter` interface
+- `src/provider-registry.ts` + `src/*-provider.ts` — Agent providers (`claude-code-provider.ts`, `opencode-provider.ts`, `mock-agent-provider.ts`); `provider-utils.ts` holds the shared OUTPUT_SCHEMA
+- `src/diff-filter.ts` — Diff filter (`applyDiffFilter`), applied post-discovery whenever a diff source exists and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets using the OpenAnt call graph (depth-1), falling back to file+line overlap (depth-0) when OpenAnt is unavailable. Supported by `diff-parser.ts` and `diff-unit-matcher.ts`
+- `src/*-runner.ts` — External tool execution with mock support (semgrep, opengrep, openant). `semgrep-runner.ts` exports the shared `runSarifScanner`/`verifySarifScannerInstalled` helpers that `opengrep-runner.ts` delegates to
+- `src/cost-calculator.ts`, `src/budget.ts`, `src/scan-history.ts` — Cost/budget subsystem: token→USD estimation from `config/pricing.json`, per-scan and per-period limits, and persisted history at `~/.aghast/history.json`
+
+**Design decisions worth knowing**
+
+- `src/openant-loader.ts` — Uses **base** OpenAnt datasets (`dataset.json`), not enhanced ones, so the AI forms its own security judgment rather than inheriting OpenAnt's
+- `src/error-codes.ts` — Trackable error codes and `formatError`/`formatFatalError`. See Conventions below for the numbering scheme
+- `src/logging.ts` — Pluggable logging with standard levels and a `LogHandler` registry (`ConsoleHandler`, `FileHandler`)
+
+**Config, docs and CI**
+
+- `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` / `AGHAST_GENERIC_PROMPT`); includes `false-positive-validation.md` and `general-vuln-discovery.md`, used when `analysisMode` is set
+- `docs/` — User documentation; `docs/README.md` is the index and lists every page in order
+- `.github/workflows/release.yml` — Unified stable + prerelease workflow (auto-detects the flow from the version format); composite steps live in `.github/release-actions/`
+- `tests/` — All test files, fixtures in `tests/fixtures/`; `*.itest.ts` are real-tool integration tests requiring Semgrep/Opengrep/OpenAnt to be installed
 
 ## Conventions
 
