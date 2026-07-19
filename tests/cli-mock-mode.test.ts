@@ -28,6 +28,7 @@ import {
   mixedChecksConfigDir,
   semgrepOnlyConfigDir,
   globCheckConfigDir,
+  scriptDiscoveryConfigDir,
   cli3TargetsSarif,
   emptyResultsSarif,
   noEndlineSarif,
@@ -1414,5 +1415,27 @@ describe('CLI mock mode: CI/CD metadata', () => {
     assert.equal(ciMetadata.branch, 'feat/stretch-116-ci-metadata');
     assert.equal(ciMetadata.pipelineSource, 'push');
     assert.equal(ciMetadata.jobStartedAt, '2026-05-04T12:00:00Z');
+  });
+});
+
+// ─── Script-based target discovery ────────────────────────────────────────────
+
+describe('CLI mock mode: script discovery', () => {
+  afterEach(cleanupOutput);
+
+  it('PASS: script emits 3 lines, mock AI returns no issues per target', async () => {
+    const { exitCode, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [repoDir, '--config-dir', scriptDiscoveryConfigDir],
+    );
+    assert.equal(exitCode, 0, `Expected exit 0 but got ${exitCode}. stderr: ${stderr}`);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].checkId, 'aghast-script-demo');
+    assert.equal(checks[0].status, 'PASS');
+    assert.equal(checks[0].targetsAnalyzed, 3, 'Should analyze 3 targets from script output');
+    assert.equal(checks[0].issuesFound, 0);
   });
 });

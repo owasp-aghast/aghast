@@ -9,6 +9,7 @@
  *   E5xxx — Semgrep / Opengrep
  *   E6xxx — OpenAnt
  *   E70xx — Budget / cost controls
+ *   E71xx — Script discovery
  *   E72xx — Result handlers (PR comments, issue trackers, notifications)
  *   E9xxx — Internal/fatal
  */
@@ -58,6 +59,14 @@ export const ERROR_CODES = {
 
   // E70xx — Budget / cost controls
   E7001: ec('E7001', 'Budget limit exceeded'),
+
+  // E71xx — Script discovery
+  E7101: ec('E7101', 'Script discovery timeout'),
+  E7102: ec('E7102', 'Script discovery non-zero exit'),
+  E7103: ec('E7103', 'Script discovery stdout overflow'),
+  E7104: ec('E7104', 'Script discovery spawn/IO failure'),
+  E7105: ec('E7105', 'Script discovery output parse failure'),
+  E7106: ec('E7106', 'Script discovery unsupported scriptType for platform'),
 
   // E72xx — Result handlers
   E7201: ec('E7201', 'PR comment posting failed'),
