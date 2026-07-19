@@ -478,7 +478,14 @@ describe('OpenCodeProvider — SSE event stream', () => {
       const provider = new OpenCodeProvider({ _client: client as never });
       await provider.initialize({ model: 'test-provider/test-model' });
 
-      await provider.executeCheck('test instructions', '/repo/path');
+      // A session error must fail the check, not resolve. Anything the session
+      // produced after the error is partial or empty, and parsing it as a
+      // result reports confidently wrong findings.
+      await assert.rejects(
+        () => provider.executeCheck('test instructions', '/repo/path'),
+        /OpenCode session failed: Model not found/,
+        'session.error should fail the check rather than returning a response',
+      );
 
       assert.ok(capturedSessionId !== '', 'Expected session.create to have been called');
       assert.ok(
@@ -488,6 +495,57 @@ describe('OpenCodeProvider — SSE event stream', () => {
     } finally {
       removeHandler('test-warn-spy');
     }
+  });
+
+  it('a streaming failure does not surface as parsed findings', async () => {
+    // Regression guard for the specific production symptom: the provider used
+    // to log "Streaming response failed" at warn and then hand the partial
+    // response to the parser, so a provider fault became real-looking findings
+    // in the report. It must raise instead, so scan-runner marks the target
+    // errored.
+    let capturedSessionId = '';
+    const pendingEvents: SseEvent[] = [];
+    const client = createMockClient({ sseEvents: pendingEvents });
+    const origCreate = client.session.create;
+    client.session.create = async (params: Record<string, unknown>) => {
+      const result = await origCreate(params);
+      capturedSessionId = (result.data?.id as string) ?? '';
+      pendingEvents.push({
+        type: 'session.error',
+        properties: {
+          sessionID: capturedSessionId,
+          error: { name: 'UnknownError', data: { message: 'Streaming response failed' } },
+        },
+      });
+      return result;
+    };
+
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    await assert.rejects(
+      () => provider.executeCheck('test instructions', '/repo/path'),
+      /Streaming response failed/,
+    );
+  });
+
+  it('ignores session.error events belonging to another session', async () => {
+    // Concurrent checks share one server, so events are filtered by sessionID.
+    // A sibling session's failure must not fail this one.
+    const pendingEvents: SseEvent[] = [{
+      type: 'session.error',
+      properties: {
+        sessionID: 'some-other-session',
+        error: { name: 'UnknownError', data: { message: 'Streaming response failed' } },
+      },
+    }];
+    const client = createMockClient({ sseEvents: pendingEvents });
+
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    const response = await provider.executeCheck('test instructions', '/repo/path');
+    assert.ok(response, 'unrelated session errors must not fail this check');
   });
 });
 
