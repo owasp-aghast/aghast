@@ -157,6 +157,7 @@ listed instead of its contents.
 - `src/diff-filter.ts` — Diff filter (`applyDiffFilter`), applied post-discovery whenever a diff source exists and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets using the OpenAnt call graph (depth-1), falling back to file+line overlap (depth-0) when OpenAnt is unavailable. Supported by `diff-parser.ts` and `diff-unit-matcher.ts`
 - `src/*-runner.ts` — External tool execution with mock support (semgrep, opengrep, openant). `semgrep-runner.ts` exports the shared `runSarifScanner`/`verifySarifScannerInstalled` helpers that `opengrep-runner.ts` delegates to
 - `src/cost-calculator.ts`, `src/budget.ts`, `src/scan-history.ts` — Cost/budget subsystem: token→USD estimation from `config/pricing.json`, per-scan and per-period limits, and persisted history at `~/.aghast/history.json`
+- `src/result-handlers/` — Post-scan delivery of findings to external systems. Currently `pr-comment-handler.ts` (GitHub PR inline review comments, spec E.7 Phase 1); issue trackers and notifications are the intended future siblings
 
 **Design decisions worth knowing**
 
@@ -173,7 +174,7 @@ listed instead of its contents.
 
 ## Conventions
 
-- **Error codes**: All CLI error paths must use codes from `src/error-codes.ts` via `formatError()`. Numbering scheme: E1xxx=CLI parsing, E2xxx=configuration, E3xxx=agent provider, E4xxx=repository/target validation, E5xxx=Semgrep/Opengrep, E6xxx=OpenAnt, E70xx=budget, E9xxx=internal/fatal.
+- **Error codes**: All CLI error paths must use codes from `src/error-codes.ts` via `formatError()`. Numbering scheme: E1xxx=CLI parsing, E2xxx=configuration, E3xxx=agent provider, E4xxx=repository/target validation, E5xxx=Semgrep/Opengrep, E6xxx=OpenAnt, E70xx=budget, E72xx=result handlers (PR comments etc.), E9xxx=internal/fatal.
 - **Color output**: Use helpers from `src/colors.ts` for colored output, never raw ANSI codes. The `NO_COLOR` env var is respected automatically via `picocolors`.
 
 ## Development Workflow

@@ -35,6 +35,7 @@ import { DEFAULT_OUTPUT_FORMAT, DEFAULT_LOG_LEVEL, DEFAULT_LOG_TYPE } from './de
 import { colorStatus } from './colors.js';
 import { getCheckType } from './check-types.js';
 import { getDiscovery, getRegisteredDiscoveries } from './discovery.js';
+import { postPRComments } from './result-handlers/pr-comment-handler.js';
 import { createRequire } from 'node:module';
 
 const TAG = 'aghast';
@@ -119,6 +120,14 @@ General options:
   --budget-limit-tokens <n>  Abort the scan when accumulated tokens exceed n.
                              Warns at 80%, aborts at 100%
 
+PR comment options (post findings as inline GitHub PR review comments):
+  --pr <number>              Pull request number to post comments on
+  --repo <owner/repo>        GitHub repository in owner/repo form
+                             (default: $GITHUB_REPOSITORY)
+  --base-sha <sha>           Base commit SHA (default: $GITHUB_BASE_SHA)
+  --head-sha <sha>           Head commit SHA
+                             (default: $GITHUB_HEAD_SHA / $GITHUB_SHA)
+
 Environment variables:
   ANTHROPIC_API_KEY           API key for Claude. If unset, AI-based checks fall
                               back to a logged-in local Claude session
@@ -134,6 +143,11 @@ Environment variables:
   AGHAST_OPENANT_DATASET      Use a pre-generated OpenAnt dataset JSON file
   AGHAST_DIFF_REF             Git ref to diff against (CLI --diff-ref takes precedence)
   NO_COLOR                    Set to "1" to disable colored output
+  GITHUB_REPOSITORY           Default for --repo (auto-set in GitHub Actions)
+  GITHUB_BASE_SHA             Default for --base-sha
+  GITHUB_HEAD_SHA             Default for --head-sha
+  GITHUB_SHA                  Fallback for --head-sha (auto-set in GitHub Actions)
+  GH_TOKEN / GITHUB_TOKEN     Auth for the gh CLI when posting PR comments
 
 Examples:
   aghast scan ./my-repo --config-dir ./my-checks
@@ -160,6 +174,10 @@ function parseArgs(args: string[]): {
   diffFile?: string;
   budgetLimitCost?: number;
   budgetLimitTokens?: number;
+  prNumber?: number;
+  prRepo?: string;
+  baseSha?: string;
+  headSha?: string;
 } {
   if (args.length < 1 || args.includes('--help') || args.includes('-h')) {
     console.log(SCAN_HELP);
@@ -187,6 +205,10 @@ function parseArgs(args: string[]): {
   let diffFile: string | undefined;
   let budgetLimitCost: number | undefined;
   let budgetLimitTokens: number | undefined;
+  let prNumber: number | undefined;
+  let prRepo: string | undefined;
+  let baseSha: string | undefined;
+  let headSha: string | undefined;
 
   for (let i = startIdx; i < args.length; i++) {
     switch (args[i]) {
@@ -333,6 +355,48 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
+      case '--pr': {
+        const raw = args[i + 1];
+        if (!raw) {
+          console.error(formatError(ERROR_CODES.E1001, '--pr requires a pull request number'));
+          process.exit(1);
+        }
+        const parsedNum = Number.parseInt(raw, 10);
+        if (!Number.isInteger(parsedNum) || parsedNum <= 0) {
+          console.error(formatError(ERROR_CODES.E1001, `--pr requires a positive integer (got "${raw}")`));
+          process.exit(1);
+        }
+        prNumber = parsedNum;
+        i++;
+        break;
+      }
+      case '--repo': {
+        prRepo = args[i + 1];
+        if (!prRepo) {
+          console.error(formatError(ERROR_CODES.E1001, '--repo requires an owner/repo argument'));
+          process.exit(1);
+        }
+        i++;
+        break;
+      }
+      case '--base-sha': {
+        baseSha = args[i + 1];
+        if (!baseSha) {
+          console.error(formatError(ERROR_CODES.E1001, '--base-sha requires a SHA argument'));
+          process.exit(1);
+        }
+        i++;
+        break;
+      }
+      case '--head-sha': {
+        headSha = args[i + 1];
+        if (!headSha) {
+          console.error(formatError(ERROR_CODES.E1001, '--head-sha requires a SHA argument'));
+          process.exit(1);
+        }
+        i++;
+        break;
+      }
       case '--fail-on-check-failure':
       case '--debug':
         // Boolean flags are handled above via includes().
@@ -354,7 +418,28 @@ function parseArgs(args: string[]): {
     runtimeConfigPath, model, agentProvider, genericPrompt,
     diffRef, diffFile,
     budgetLimitCost, budgetLimitTokens,
+    prNumber, prRepo, baseSha, headSha,
   };
+}
+
+/**
+ * Parse "owner/repo" into its parts. Returns undefined when the input is
+ * missing or malformed so callers can produce a CLI-friendly error.
+ *
+ * Validates each half against `^[A-Za-z0-9_.-]+$` — the character set GitHub
+ * actually permits in owner/repo names. This rejects whitespace and shell
+ * metacharacters defensively, even though the parsed value is only ever
+ * interpolated into a `gh api` URL path (no shell).
+ */
+const REPO_SLUG_PART = /^[A-Za-z0-9_.-]+$/;
+export function parseRepoSlug(slug: string | undefined): { owner: string; repo: string } | undefined {
+  if (!slug) return undefined;
+  const parts = slug.split('/');
+  if (parts.length !== 2) return undefined;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return undefined;
+  if (!REPO_SLUG_PART.test(owner) || !REPO_SLUG_PART.test(repo)) return undefined;
+  return { owner, repo };
 }
 
 async function createProvider(
@@ -865,6 +950,38 @@ export async function runScan(args: string[]): Promise<void> {
       const reason = outcome.budgetAbortReason ?? 'Budget limit exceeded';
       console.error(formatError(ERROR_CODES.E7001, reason));
       logProgress(TAG, `Scan aborted by budget: ${reason}`);
+    }
+
+    // ─── Optional: post findings as PR comments ──────────────────────────────
+    if (parsed.prNumber !== undefined) {
+      const repoSlug = parsed.prRepo ?? process.env.GITHUB_REPOSITORY;
+      const repoParts = parseRepoSlug(repoSlug);
+      if (!repoParts) {
+        console.error(formatError(
+          ERROR_CODES.E1001,
+          '--pr was supplied but --repo (or $GITHUB_REPOSITORY) is missing or not in owner/repo form',
+        ));
+        await closeAllHandlers();
+        process.exit(1);
+      }
+      try {
+        const headSha = parsed.headSha ?? process.env.GITHUB_HEAD_SHA ?? process.env.GITHUB_SHA;
+        const baseSha = parsed.baseSha ?? process.env.GITHUB_BASE_SHA;
+        const summary = await postPRComments(results, {
+          owner: repoParts.owner,
+          repo: repoParts.repo,
+          prNumber: parsed.prNumber,
+          baseSha,
+          headSha,
+        });
+        console.log(`  PR comments:   posted ${summary.posted}, skipped ${summary.skipped}`);
+      } catch (err) {
+        console.error(formatError(
+          ERROR_CODES.E7201,
+          `Failed to post PR comments: ${err instanceof Error ? err.message : String(err)}`,
+        ));
+        // Non-fatal: don't override scan exit code, but log a warning.
+      }
     }
 
     // Exit code based on --fail-on-check-failure flag or runtime config (spec Section 9.3),

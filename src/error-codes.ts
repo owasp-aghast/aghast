@@ -8,7 +8,8 @@
  *   E4xxx — Repository/target validation
  *   E5xxx — Semgrep / Opengrep
  *   E6xxx — OpenAnt
- *   E7xxx — Budget / cost controls
+ *   E70xx — Budget / cost controls
+ *   E72xx — Result handlers (PR comments, issue trackers, notifications)
  *   E9xxx — Internal/fatal
  */
 
@@ -55,8 +56,11 @@ export const ERROR_CODES = {
   E6001: ec('E6001', 'OpenAnt not installed'),
   E6002: ec('E6002', 'OpenAnt execution failed'),
 
-  // E7xxx — Budget / cost controls
+  // E70xx — Budget / cost controls
   E7001: ec('E7001', 'Budget limit exceeded'),
+
+  // E72xx — Result handlers
+  E7201: ec('E7201', 'PR comment posting failed'),
 
   // E9xxx — Internal
   E9001: ec('E9001', 'Fatal internal error'),
