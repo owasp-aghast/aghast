@@ -210,6 +210,67 @@ describe('SarifFormatter', () => {
     assert.equal(sarif.runs[0].results[0].kind, undefined);
     assert.equal(sarif.runs[0].results[0].message.text, 'Confirmed SQLi');
   });
+
+  // ─── CI/CD metadata → SARIF invocations (spec E.4) ────────────────────────
+
+  it('omits invocations when no metadata is present', () => {
+    const sarif = JSON.parse(formatter.format(makeResults()));
+    assert.equal(sarif.runs[0].invocations, undefined);
+  });
+
+  it('omits invocations when metadata.ciMetadata is undefined', () => {
+    const sarif = JSON.parse(formatter.format(makeResults({ metadata: {} })));
+    assert.equal(sarif.runs[0].invocations, undefined);
+  });
+
+  it('omits invocations when ciMetadata exists but is entirely empty', () => {
+    // Defensive: even a non-empty ciMetadata object with no populated fields
+    // should not produce a stray invocations[] in the output.
+    const sarif = JSON.parse(formatter.format(makeResults({ metadata: { ciMetadata: {} } })));
+    assert.equal(sarif.runs[0].invocations, undefined);
+  });
+
+  it('maps full ciMetadata to a single invocation with namespaced properties', () => {
+    const sarif = JSON.parse(formatter.format(makeResults({
+      metadata: {
+        ciMetadata: {
+          jobUrl: 'https://github.com/org/repo/actions/runs/12345',
+          branch: 'feature/auth-fix',
+          pipelineSource: 'push',
+          jobStartedAt: '2026-01-18T10:00:00Z',
+        },
+      },
+    })));
+    assert.equal(Array.isArray(sarif.runs[0].invocations), true);
+    assert.equal(sarif.runs[0].invocations.length, 1);
+    const invocation = sarif.runs[0].invocations[0];
+    assert.equal(invocation.executionSuccessful, true);
+    assert.deepEqual(invocation.properties, {
+      'aghast.ciJobUrl': 'https://github.com/org/repo/actions/runs/12345',
+      'aghast.ciBranch': 'feature/auth-fix',
+      'aghast.ciPipelineSource': 'push',
+      'aghast.ciJobStartedAt': '2026-01-18T10:00:00Z',
+    });
+  });
+
+  it('maps partial ciMetadata (CircleCI shape) without spurious property keys', () => {
+    const sarif = JSON.parse(formatter.format(makeResults({
+      metadata: {
+        ciMetadata: {
+          jobUrl: 'https://circleci.com/gh/org/repo/42',
+          branch: 'main',
+        },
+      },
+    })));
+    const invocation = sarif.runs[0].invocations[0];
+    assert.deepEqual(invocation.properties, {
+      'aghast.ciJobUrl': 'https://circleci.com/gh/org/repo/42',
+      'aghast.ciBranch': 'main',
+    });
+    // Confirm no undefined fields leak in.
+    assert.equal('aghast.ciPipelineSource' in invocation.properties, false);
+    assert.equal('aghast.ciJobStartedAt' in invocation.properties, false);
+  });
 });
 
 describe('mapSeverityToLevel', () => {

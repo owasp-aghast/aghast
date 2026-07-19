@@ -234,6 +234,37 @@ export interface CheckExecutionSummary {
   validationsCount?: { truePositive: number; falsePositive: number };
 }
 
+// --- A.5a CI/CD Metadata (spec E.4) ---
+
+/**
+ * CI/CD pipeline context captured during a scan run. Populated automatically
+ * from environment variables when aghast detects it is running inside a
+ * supported CI/CD platform (GitHub Actions, GitLab CI, CircleCI). All fields
+ * are optional in case detection is partial.
+ */
+export interface CIMetadata {
+  /** URL of the CI/CD job that produced this scan. */
+  jobUrl?: string;
+  /**
+   * Ref that was scanned. On GitHub Actions this is `GITHUB_REF_NAME` —
+   * a branch name on `push` to a branch, the tag name on a tag push, or
+   * the PR merge ref (e.g. `123/merge`) on `pull_request` events. Consult
+   * `pipelineSource` to disambiguate.
+   */
+  branch?: string;
+  /**
+   * Platform-specific trigger string verbatim. Vocabularies differ:
+   * GitHub Actions emits `push`, `pull_request`, `schedule`, `workflow_dispatch`,
+   * `repository_dispatch`, etc.; GitLab CI emits `push`, `merge_request_event`,
+   * `schedule`, `web`, `api`, `external`, etc.; CircleCI does not set this
+   * field. Consumers should treat the value as an opaque string and not
+   * assume a unified vocabulary across platforms.
+   */
+  pipelineSource?: string;
+  /** ISO-8601 timestamp for when the CI/CD job started. */
+  jobStartedAt?: string;
+}
+
 // --- A.5 Complete Scan Results ---
 
 export interface ScanResults {
@@ -257,7 +288,25 @@ export interface ScanResults {
     models: string[];
   };
   tokenUsage?: TokenUsage;
-  metadata?: Record<string, unknown>;
+  metadata?: ScanMetadata;
+}
+
+/**
+ * Additional metadata about the scan environment. Currently carries CI/CD
+ * pipeline context (spec E.4) when running in a supported CI environment.
+ * Extend by adding explicit fields here when new metadata is introduced —
+ * keeping the type closed surfaces typos at compile time.
+ */
+export interface ScanMetadata {
+  ciMetadata?: CIMetadata;
+  /**
+   * Cost summary, attached by `runMultiScan` when pricing config is available.
+   * See `src/cost-calculator.ts`.
+   */
+  cost?: {
+    totalCostUsd: number;
+    currency: string;
+  };
 }
 
 export interface RepositoryInfo {

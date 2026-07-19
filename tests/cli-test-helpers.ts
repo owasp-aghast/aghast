@@ -10,6 +10,7 @@ import { statSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, unlink } from 'node:fs/promises';
+import { CI_ENV_VAR_NAMES } from '../src/ci-metadata.js';
 
 export const testDir = dirname(fileURLToPath(import.meta.url));
 
@@ -142,6 +143,12 @@ export async function runCLI(
     AGHAST_LOG_FILE: '',
     AGHAST_LOG_TYPE: '',
     NO_COLOR: '1',
+    // Scrub CI/CD detection vars so the suite is hermetic when the test
+    // runner itself happens to be inside CI (spec E.4 metadata is opt-in
+    // per test). Tests that want to populate ciMetadata override these.
+    // Source of truth for the var names is `CI_ENV_VAR_NAMES` in
+    // `src/ci-metadata.ts` — adding a var there auto-extends this scrub.
+    ...Object.fromEntries(CI_ENV_VAR_NAMES.map((name) => [name, undefined])),
   };
   const merged = { ...dotenvDefaults, ...env };
   const childEnv = { ...process.env, ...merged };

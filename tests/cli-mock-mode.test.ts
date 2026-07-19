@@ -1219,3 +1219,49 @@ describe('CLI: conditional prerequisite validation', () => {
     assert.equal(checks[0].issuesFound, 3);
   });
 });
+
+// ─── CI/CD metadata (spec E.4) ──────────────────────────────────────────────
+
+describe('CLI mock mode: CI/CD metadata', () => {
+  afterEach(cleanupOutput);
+
+  it('omits ciMetadata when no CI env vars are set', async () => {
+    const { exitCode } = await runCLI({ AGHAST_MOCK_AI: 'true' });
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    // Either no metadata at all, or metadata without ciMetadata.
+    const metadata = results.metadata as Record<string, unknown> | undefined;
+    if (metadata) {
+      assert.equal(metadata.ciMetadata, undefined);
+    }
+  });
+
+  it('populates ciMetadata when GitHub Actions env is provided', async () => {
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+      CI: 'true',
+      GITHUB_ACTIONS: 'true',
+      GITHUB_SERVER_URL: 'https://github.com',
+      GITHUB_REPOSITORY: 'BounceSecurity/aghast-internal',
+      GITHUB_RUN_ID: '999',
+      GITHUB_REF_NAME: 'feat/stretch-116-ci-metadata',
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_RUN_STARTED_AT: '2026-05-04T12:00:00Z',
+    });
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const metadata = results.metadata as Record<string, unknown> | undefined;
+    assert.ok(metadata, 'metadata should be present');
+    const ciMetadata = metadata.ciMetadata as Record<string, unknown> | undefined;
+    assert.ok(ciMetadata, 'ciMetadata should be present');
+    assert.equal(
+      ciMetadata.jobUrl,
+      'https://github.com/BounceSecurity/aghast-internal/actions/runs/999',
+    );
+    assert.equal(ciMetadata.branch, 'feat/stretch-116-ci-metadata');
+    assert.equal(ciMetadata.pipelineSource, 'push');
+    assert.equal(ciMetadata.jobStartedAt, '2026-05-04T12:00:00Z');
+  });
+});

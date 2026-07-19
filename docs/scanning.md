@@ -94,6 +94,26 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 - **CSV** - one row per issue (plus one row per `ERROR` check) for spreadsheet analysis. UTF-8 encoded, no BOM, RFC 4180 quoting, CRLF line endings. Descriptions are flattened to a single line and truncated to 500 chars. The structured `dataFlow` taint trace is omitted; use SARIF or JSON for the full trace.
 - **HTML** - self-contained interactive report with inline CSS/JS and the full `ScanResults` embedded as a JSON island. Includes filterable issues table, severity/status badges, expandable per-check sections, and code snippets. No external resources, so the file can be emailed or hosted as-is.
 
+## CI/CD Metadata
+
+When aghast detects it is running inside a supported CI/CD environment, scan results include a `metadata.ciMetadata` object so downstream tooling can correlate findings with the pipeline run that produced them. In SARIF output the same fields appear under the run's `invocations[0].properties` bag (keys prefixed `aghast.`). Detection is automatic and read-only — aghast never sets or modifies CI environment variables.
+
+Supported platforms and the env vars consulted:
+
+| Field | GitHub Actions | GitLab CI | CircleCI |
+|-------|----------------|-----------|----------|
+| `jobUrl` | `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY` + `GITHUB_RUN_ID` | `CI_JOB_URL` | `CIRCLE_BUILD_URL` |
+| `branch` | `GITHUB_REF_NAME` | `CI_COMMIT_REF_NAME` | `CIRCLE_BRANCH` |
+| `pipelineSource` | `GITHUB_EVENT_NAME` | `CI_PIPELINE_SOURCE` | _(not set)_ |
+| `jobStartedAt` | `GITHUB_RUN_STARTED_AT` | `CI_JOB_STARTED_AT` | _(not set)_ |
+
+Detection looks for `CI=true` (or `CI=1`) plus a platform-specific signal (`GITHUB_ACTIONS`, `GITLAB_CI`, or `CIRCLECI`); each flag accepts the literal string `'true'` or `'1'`. When running locally, no `ciMetadata` is emitted.
+
+A few caveats for downstream consumers:
+
+- **`branch` may not be a branch name.** It comes from the platform's ref env var verbatim — that's a tag name on tag pushes, and on GitHub Actions `pull_request` events it's the PR merge ref (e.g. `123/merge`). Check `pipelineSource` to disambiguate.
+- **`pipelineSource` vocabularies differ across platforms.** GitHub Actions emits values like `push`, `pull_request`, `schedule`, `workflow_dispatch`; GitLab CI emits `push`, `merge_request_event`, `schedule`, `web`, `api`, etc.; CircleCI does not set this field. Treat the value as an opaque, platform-specific string.
+
 ## Check Types
 
 aghast supports three check types with pluggable discovery methods:
