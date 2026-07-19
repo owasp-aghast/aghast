@@ -13,6 +13,16 @@ describe('Formatter registry', () => {
     assert.equal(f.id, 'sarif');
   });
 
+  it('getFormatter("csv") returns a formatter with id "csv"', () => {
+    const f = getFormatter('csv');
+    assert.equal(f.id, 'csv');
+  });
+
+  it('getFormatter("html") returns a formatter with id "html"', () => {
+    const f = getFormatter('html');
+    assert.equal(f.id, 'html');
+  });
+
   it('getFormatter("unknown") throws with descriptive error', () => {
     assert.throws(
       () => getFormatter('unknown'),
@@ -20,15 +30,19 @@ describe('Formatter registry', () => {
         assert.ok(err.message.includes('Unknown output format "unknown"'));
         assert.ok(err.message.includes('json'));
         assert.ok(err.message.includes('sarif'));
+        assert.ok(err.message.includes('csv'));
+        assert.ok(err.message.includes('html'));
         return true;
       },
     );
   });
 
-  it('getAvailableFormats() returns both formats', () => {
+  it('getAvailableFormats() returns all four formats', () => {
     const formats = getAvailableFormats();
     assert.ok(formats.includes('json'));
     assert.ok(formats.includes('sarif'));
-    assert.equal(formats.length, 2);
+    assert.ok(formats.includes('csv'));
+    assert.ok(formats.includes('html'));
+    assert.equal(formats.length, 4);
   });
 });

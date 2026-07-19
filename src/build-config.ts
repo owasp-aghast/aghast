@@ -143,7 +143,7 @@ Field flags (any value provided here skips its prompt; closed lists are validate
   --model <id>                  Model ID. Must be one returned by the provider's
                                 listModels() (skip flag and use interactive mode to
                                 browse the live list).
-  --output-format <fmt>         Output format: json | sarif
+  --output-format <fmt>         Output format: json | sarif | csv | html
   --output-directory <path>     Default output directory for results
   --log-level <level>           Console log level: error | warn | info | debug | trace
   --log-file <path>             Log file path (omit to disable)
