@@ -61,7 +61,7 @@ The repo includes six example checks demonstrating the three check types (`repos
 |---|---------|------------|-----------|---------------|----------|
 | 1 | [Business Logic Bypass](#example-1-business-logic-bypass-repository-check) | repository | — | — | API key |
 | 2 | [Important Validations before AI Queries](#example-2-important-validations-before-ai-queries-targeted-check-semgrep-discovery) | targeted | Semgrep | custom | API key, Semgrep |
-| 3 | [Missing API Token Decorator](#example-3-missing-api-token-decorator-static-check-semgrep-discovery) | static | Semgrep | — | Semgrep |
+| 3 | [Missing API Token Decorator](#example-3-missing-api-token-decorator-static-check-opengrep-discovery) | static | Opengrep | — | Opengrep |
 | 4 | [SAST Finding Verification](#example-4-sast-finding-verification-targeted-check-sarif-input-false-positive-validation) | targeted | SARIF input | false-positive validation | API key |
 | 5 | [Various Security Vulnerabilities](#example-5-various-security-vulnerabilities-targeted-check-openant-discovery-general-vulnerability-analysis) | targeted | OpenAnt | general vulnerability discovery | API key, OpenAnt |
 | 6 | [Diff-Scoped Validation Scanning](#example-6-diff-scoped-validation-scanning-targeted-check-semgrep-discovery-with-diff-filtering) | targeted | Semgrep | custom | API key, Semgrep |
@@ -179,13 +179,11 @@ FAIL with 2 issues: Semgrep finds 3 targets (endpoints calling `send_ai_query()`
 
 ---
 
-### Example 3: Missing API Token Decorator (static check, Semgrep discovery)
-
-[Click for a video walkthrough of running this example.](https://youtu.be/2P8yAWRJSLk)
+### Example 3: Missing API Token Decorator (static check, Opengrep discovery)
 
 #### Check type
 
-`static` with `semgrep` discovery. Semgrep findings are mapped directly to issues with no AI involvement.
+`static` with `opengrep` discovery. Opengrep findings are mapped directly to issues with no AI involvement.
 
 #### What it does
 
@@ -201,13 +199,13 @@ Detects Flask route handlers that are missing the `@require_api_token` decorator
   "confidence": "high",
   "checkTarget": {
     "type": "static",
-    "discovery": "semgrep",
+    "discovery": "opengrep",
     "rules": "aghast-py-missing-token-decorator.yaml"
   }
 }
 ```
 
-With `checkTarget.type` set to `static`, there is no instructions file. The Semgrep rule does all the work:
+With `checkTarget.type` set to `static`, there is no instructions file. The Opengrep rule does all the work. Opengrep uses the same rule syntax as Semgrep:
 
 ```yaml
 rules:
@@ -232,13 +230,13 @@ rules:
     severity: ERROR
 ```
 
-Each Semgrep match is mapped directly to a `SecurityIssue`. No API key needed.
+Each Opengrep match is mapped directly to a `SecurityIssue`. No API key needed.
 
 #### Test codebase
 
 `test-codebases/test-7-missing-token-decorator/` - a Python Flask app with several route handlers, some missing the required decorator.
 
-#### Run it (requires Semgrep, no API key):
+#### Run it (requires Opengrep, no API key):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-decorator \
@@ -248,7 +246,7 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-de
 
 #### Expected result
 
-FAIL with 4 issues: four endpoints across three route files are missing the `@require_api_token` decorator. Health and readiness endpoints are correctly excluded by the Semgrep rule's regex filter.
+FAIL with 4 issues: four endpoints across three route files are missing the `@require_api_token` decorator. Health and readiness endpoints are correctly excluded by the Opengrep rule's regex filter.
 
 ---
 

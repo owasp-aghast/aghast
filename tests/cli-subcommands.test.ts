@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { unlink, access, readFile } from 'node:fs/promises';
+import { unlink, access, readFile, mkdir, writeFile, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliEntry = resolve(__dirname, '..', 'src', 'cli.ts');
@@ -177,8 +178,57 @@ describe('CLI subcommands: scan delegation', () => {
     );
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes('Usage: aghast scan'), 'Should show scan help');
-    assert.ok(stdout.includes('--config-dir'), 'Should describe --config-dir flag');
-    assert.ok(stdout.includes('--debug'), 'Should describe --debug flag');
+    const scanOptions = [
+      '--help',
+      '--config-dir',
+      '--output',
+      '--output-format',
+      '--fail-on-check-failure',
+      '--debug',
+      '--log-level',
+      '--log-file',
+      '--log-type',
+      '--model',
+      '--agent-provider',
+      '--generic-prompt',
+      '--runtime-config',
+      '--diff-ref',
+      '--diff-file',
+      '--budget-limit-cost',
+      '--budget-limit-tokens',
+    ];
+    for (const option of scanOptions) {
+      assert.ok(stdout.includes(option), `Should describe ${option} flag`);
+    }
+    const environmentVariables = [
+      'ANTHROPIC_API_KEY',
+      'AGHAST_CONFIG_DIR',
+      'AGHAST_AI_MODEL',
+      'AGHAST_GENERIC_PROMPT',
+      'AGHAST_DEBUG',
+      'AGHAST_LOG_LEVEL',
+      'AGHAST_LOG_FILE',
+      'AGHAST_LOG_TYPE',
+      'AGHAST_MOCK_SARIF',
+      'AGHAST_OPENANT_DATASET',
+      'AGHAST_DIFF_REF',
+      'NO_COLOR',
+    ];
+    for (const variable of environmentVariables) {
+      assert.ok(stdout.includes(variable), `Should describe ${variable}`);
+    }
+  });
+
+  it('scan help works after the repository path', async () => {
+    for (const helpFlag of ['--help', '-h']) {
+      const { exitCode, stdout, stderr } = await runCLI(
+        ['scan', fixtureRepo, helpFlag],
+        { AGHAST_MOCK_AI: 'true' },
+      );
+      assert.equal(exitCode, 0, `${helpFlag} should exit successfully`);
+      assert.ok(stdout.includes('Usage: aghast scan'), `${helpFlag} should show scan help`);
+      assert.equal(stderr, '', `${helpFlag} should not report an unknown option`);
+    }
   });
 });
 
@@ -202,6 +252,51 @@ describe('CLI subcommands: new-check delegation', () => {
     assert.ok(stdout.includes('Usage: aghast new-check'), 'Should show new-check help');
     assert.ok(stdout.includes('--id'), 'Should describe --id flag');
     assert.ok(stdout.includes('--check-type'), 'Should describe --check-type flag');
+  });
+
+  it('new-check creates missing files for an ID already present in checks-config.json', async () => {
+    const configDir = resolve(__dirname, '..', `.tmp-cli-new-check-${randomUUID().slice(0, 8)}`);
+    const registryPath = resolve(configDir, 'checks-config.json');
+    const existingRegistry = {
+      checks: [{
+        id: 'aghast-existing',
+        repositories: ['https://github.com/example/repo'],
+        enabled: false,
+      }],
+    };
+
+    try {
+      await mkdir(resolve(configDir, 'checks'), { recursive: true });
+      await writeFile(registryPath, JSON.stringify(existingRegistry, null, 2), 'utf-8');
+
+      const { exitCode, stderr } = await runCLI([
+        'new-check',
+        '--config-dir', configDir,
+        '--id', 'aghast-existing',
+        '--name', 'Existing Check',
+        '--check-type', 'repository',
+        '--check-overview', 'Checks existing configuration',
+        '--check-items', 'Existing registry entry',
+        '--pass-condition', 'Configuration is valid',
+        '--fail-condition', 'Configuration is invalid',
+      ]);
+
+      assert.equal(exitCode, 0, `CLI failed: ${stderr}`);
+      assert.ok(stderr.includes('already exists in checks-config.json'));
+
+      const checkDefinition = JSON.parse(
+        await readFile(
+          resolve(configDir, 'checks', 'aghast-existing', 'aghast-existing.json'),
+          'utf-8',
+        ),
+      );
+      assert.equal(checkDefinition.id, 'aghast-existing');
+
+      const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+      assert.deepEqual(registry, existingRegistry);
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
   });
 });
 

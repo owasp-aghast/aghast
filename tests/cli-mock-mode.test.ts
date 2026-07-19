@@ -21,6 +21,8 @@ import {
   fixtureRepo,
   outputFile,
   sarifOutputFile,
+  csvOutputFile,
+  htmlOutputFile,
   singleCheckConfigDir,
   multiCheckConfigDir,
   repoFilteredConfigDir,
@@ -42,6 +44,13 @@ import {
   cleanupOutput,
   readResults,
 } from './cli-test-helpers.js';
+
+const emptyInstructionsConfigDir = resolve(
+  __dirname,
+  'fixtures',
+  'cli-configs',
+  'empty-instructions',
+);
 
 // ─── PASS scenarios ──────────────────────────────────────────────────────────
 
@@ -87,6 +96,21 @@ describe('CLI mock mode: PASS scenarios', () => {
     const { stdout, stderr } = await runCLI({ AGHAST_MOCK_AI: 'true' });
     const combined = stdout + stderr;
     assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Summary banner should show NO ISSUES DETECTED');
+  });
+});
+
+describe('CLI mock mode: invalid check instructions', () => {
+  it('does not run a repository check with an empty instructions file', async () => {
+    const { exitCode, stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', emptyInstructionsConfigDir],
+    );
+
+    assert.equal(exitCode, 1);
+    assert.ok(
+      (stdout + stderr).includes('is empty'),
+      'Should explain that the instructions file is empty',
+    );
   });
 });
 
@@ -716,6 +740,117 @@ describe('CLI mock mode: output format', () => {
     );
     const combined = stdout + stderr;
     assert.ok(combined.includes('.sarif'), 'Summary should show .sarif path');
+  });
+});
+
+// ─── Output format: CSV ──────────────────────────────────────────────────────
+
+describe('CLI mock mode: CSV output format', () => {
+  afterEach(cleanupOutput);
+
+  it('--output-format csv with PASS writes a .csv with header row only', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+    );
+    assert.equal(exitCode, 0);
+    await access(csvOutputFile);
+
+    const raw = await readFile(csvOutputFile, 'utf-8');
+    const lines = raw.split('\r\n').filter((l) => l.length > 0);
+    assert.equal(lines.length, 1, 'PASS scan should have header row only');
+    assert.ok(lines[0].startsWith('checkId,checkName,status,'));
+  });
+
+  it('--output-format csv with FAIL writes one row per issue', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+    );
+    assert.equal(exitCode, 0);
+    await access(csvOutputFile);
+
+    const raw = await readFile(csvOutputFile, 'utf-8');
+    const lines = raw.split('\r\n').filter((l) => l.length > 0);
+    assert.equal(lines.length, 2, 'FAIL scan with 1 issue: header + 1 issue row');
+    assert.ok(lines[1].includes('aghast-sql-injection'));
+    assert.ok(lines[1].includes('FAIL'));
+  });
+
+  it('CSV format does not write .json file', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+    );
+    await assert.rejects(
+      access(outputFile),
+      'Should NOT create .json file when using csv format',
+    );
+  });
+
+  it('summary banner shows correct .csv path', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('.csv'), 'Summary should show .csv path');
+  });
+});
+
+// ─── Output format: HTML ─────────────────────────────────────────────────────
+
+describe('CLI mock mode: HTML output format', () => {
+  afterEach(cleanupOutput);
+
+  it('--output-format html with PASS writes a self-contained HTML file', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+    );
+    assert.equal(exitCode, 0);
+    await access(htmlOutputFile);
+
+    const raw = await readFile(htmlOutputFile, 'utf-8');
+    assert.ok(raw.startsWith('<!DOCTYPE html>'), 'should start with DOCTYPE');
+    assert.ok(raw.includes('<style>'), 'should include inline CSS');
+    assert.ok(raw.includes('<script id="aghast-results"'), 'should include embedded JSON');
+    assert.ok(raw.includes('No issues detected'), 'PASS scan should show empty-state message');
+  });
+
+  it('--output-format html with FAIL embeds issue data in the HTML', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+    );
+    assert.equal(exitCode, 0);
+    await access(htmlOutputFile);
+
+    const raw = await readFile(htmlOutputFile, 'utf-8');
+    assert.ok(raw.includes('aghast-sql-injection'));
+    assert.ok(raw.includes('SQL Injection Prevention'));
+    // Expect a <details> block per check
+    assert.ok(raw.includes('<details>'));
+  });
+
+  it('HTML format does not write .json file', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+    );
+    await assert.rejects(
+      access(outputFile),
+      'Should NOT create .json file when using html format',
+    );
+  });
+
+  it('summary banner shows correct .html path', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('.html'), 'Summary should show .html path');
   });
 });
 

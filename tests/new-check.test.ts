@@ -262,20 +262,31 @@ describe('new-check utility', () => {
     assert.ok(!mdContent.includes('**FLAG**'), 'FLAG line should not be present');
   });
 
-  it('rejects duplicate check ID', async () => {
-    // Seed registry with an existing check
+  it('creates missing check files without duplicating an existing registry entry', async () => {
+    // Seed registry with an existing check whose folder is missing
     const existingRegistry = {
-      checks: [{ id: 'aghast-test', repositories: [], enabled: true }],
+      checks: [{
+        id: 'aghast-test',
+        repositories: ['https://github.com/example/repo'],
+        enabled: false,
+      }],
     };
     await writeFile(registryPath, JSON.stringify(existingRegistry, null, 2), 'utf-8');
 
     const result = await runNewCheck(allFlags());
 
-    assert.notEqual(result.exitCode, 0, 'Should have failed for duplicate ID');
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
     assert.ok(
-      result.stderr.includes('already exists'),
-      `Expected duplicate error, got: ${result.stderr}`,
+      result.stderr.includes('already exists in checks-config.json'),
+      `Expected existing-registry warning, got: ${result.stderr}`,
     );
+
+    const checkJsonPath = resolve(checksDir, 'aghast-test', 'aghast-test.json');
+    const checkDef = JSON.parse(await readFile(checkJsonPath, 'utf-8'));
+    assert.equal(checkDef.id, 'aghast-test');
+
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    assert.deepEqual(registry, existingRegistry, 'Existing registry entry should remain unchanged');
   });
 
   it('rejects when check folder already exists', async () => {

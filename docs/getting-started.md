@@ -18,6 +18,7 @@ This guide walks you through installing aghast and setting up your environment.
 
   See [Scanning → Agent Providers](scanning.md#agent-providers) for the full comparison.
 - For checks that use `semgrep` discovery: **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1)
+- For checks that use `opengrep` discovery: **[Opengrep](https://github.com/opengrep/opengrep)**
 - For checks that use `openant` discovery: **[OpenAnt](https://github.com/knostic/OpenAnt)** (Apache-2.0) + **Python 3.11+** + **Go** (for building CLI)
 
 ## 1. Install aghast

@@ -1,0 +1,8 @@
+{
+  "id": "aghast-empty-instructions",
+  "name": "Empty Instructions Check",
+  "instructionsFile": "aghast-empty-instructions.md",
+  "checkTarget": {
+    "type": "repository"
+  }
+}
