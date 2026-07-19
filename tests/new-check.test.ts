@@ -895,4 +895,89 @@ describe('new-check utility', () => {
     assert.equal(checkDef.checkTarget.discovery, 'openant');
     assert.equal(checkDef.checkTarget.maxTargets, 25);
   });
+
+  // ─── Targeted glob checks (Spec E.2.1) ─
+
+  it('targeted glob creates correct checkTarget with instructionsFile', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'glob',
+      '--glob': 'src/routes/**/*.ts',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'glob');
+    assert.equal(checkDef.checkTarget.glob, 'src/routes/**/*.ts');
+    assert.equal(checkDef.instructionsFile, 'aghast-test.md', 'glob discovery requires instructionsFile by default');
+    assert.equal(checkDef.checkTarget.rules, undefined, 'glob should not have rules');
+    assert.equal(checkDef.checkTarget.sarifFile, undefined, 'glob should not have sarifFile');
+  });
+
+  it('targeted glob generates .md file', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'glob',
+      '--glob': 'src/**/*.ts',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(files.includes('aghast-test.md'), 'glob should generate .md file');
+    assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+    assert.ok(!files.includes('aghast-test.yaml'), 'glob should not generate Semgrep yaml');
+  });
+
+  it('targeted glob with general-vuln-discovery skips instructionsFile and .md', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'glob',
+      '--glob': 'src/**/*.ts',
+      '--analysis-mode': 'general-vuln-discovery',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.analysisMode, 'general-vuln-discovery');
+    assert.equal(checkDef.instructionsFile, undefined, 'built-in mode does not need instructionsFile');
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.md'), 'built-in mode should not generate .md file');
+  });
+
+  it('targeted glob rejects false-positive-validation analysis mode', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'glob',
+      '--glob': 'src/**/*.ts',
+      '--analysis-mode': 'false-positive-validation',
+    }));
+
+    assert.notEqual(result.exitCode, 0, 'Should reject false-positive-validation for glob discovery');
+    assert.ok(
+      result.stderr.includes('Invalid analysis mode'),
+      `Expected analysis mode error, got: ${result.stderr}`,
+    );
+  });
+
+  it('targeted glob includes maxTargets in checkTarget when provided', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'glob',
+      '--glob': 'src/**/*.ts',
+      '--max-targets': '40',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.discovery, 'glob');
+    assert.equal(checkDef.checkTarget.maxTargets, 40);
+  });
 });

@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-glob-test",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

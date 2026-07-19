@@ -85,10 +85,12 @@ export interface OpenAntFilterConfig {
 
 export interface CheckTargetDefinition {
   type: 'targeted' | 'static' | 'repository';
-  discovery?: 'semgrep' | 'opengrep' | 'openant' | 'sarif';
+  discovery?: 'semgrep' | 'opengrep' | 'openant' | 'sarif' | 'glob';
   rules?: string | string[];
   config?: string;
   sarifFile?: string;
+  /** Glob pattern used by the "glob" discovery (e.g. "src/routes/**\/*.ts"). */
+  glob?: string;
   maxTargets?: number;
   concurrency?: number;
   /** Cap on issues returned per target; omit for unlimited. See docs/configuration.md. */
