@@ -337,7 +337,7 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `agentProvider.name`            | `string`   | `claude-code` | Agent provider name (`claude-code` or `opencode`) |
 | `agentProvider.model`           | `string`   | (provider default) | Model ID override. For `opencode`, use `providerID/modelID` format (e.g. `opencode/nemotron-3-super-free`) |
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
-| `reporting.outputFormat`        | `string`   | `json` | Output format: `json`, `sarif`, `csv`, or `html` (see [Scanning › Output Formats](scanning.md#output-formats)) |
+| `reporting.outputFormat`        | `string`   | `json` | Output format: `json`, `sarif`, `csv`, `html`, or `markdown` (see [Scanning › Output Formats](scanning.md#output-formats)) |
 | `reporting.includeIndividualIssueFiles` | `boolean` | `false` | When `true`, write one file per issue under `security_issues_<project>/<check-id>/` alongside the main report (Spec E.3.2). The directory is created in the same folder as the main report |
 | `reporting.individualIssueFormat` | `string` | `markdown` | Format for individual issue files: `markdown`, `json`, or `html`. Ignored unless `includeIndividualIssueFiles` is `true` |
 | `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |

@@ -18,6 +18,12 @@ describe('Formatter registry', () => {
     assert.equal(f.id, 'csv');
   });
 
+  it('getFormatter("markdown") returns a formatter with id "markdown"', () => {
+    const f = getFormatter('markdown');
+    assert.equal(f.id, 'markdown');
+    assert.equal(f.fileExtension, '.md');
+  });
+
   it('getFormatter("html") returns a formatter with id "html"', () => {
     const f = getFormatter('html');
     assert.equal(f.id, 'html');
@@ -32,17 +38,19 @@ describe('Formatter registry', () => {
         assert.ok(err.message.includes('sarif'));
         assert.ok(err.message.includes('csv'));
         assert.ok(err.message.includes('html'));
+        assert.ok(err.message.includes('markdown'));
         return true;
       },
     );
   });
 
-  it('getAvailableFormats() returns all four formats', () => {
+  it('getAvailableFormats() returns all five formats', () => {
     const formats = getAvailableFormats();
     assert.ok(formats.includes('json'));
     assert.ok(formats.includes('sarif'));
     assert.ok(formats.includes('csv'));
     assert.ok(formats.includes('html'));
-    assert.equal(formats.length, 4);
+    assert.ok(formats.includes('markdown'));
+    assert.equal(formats.length, 5);
   });
 });

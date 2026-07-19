@@ -55,6 +55,7 @@ const outputFile = resolve(repoDir, 'security_checks_results.json');
 const sarifOutputFile = resolve(repoDir, 'security_checks_results.sarif');
 const csvOutputFile = resolve(repoDir, 'security_checks_results.csv');
 const htmlOutputFile = resolve(repoDir, 'security_checks_results.html');
+const markdownOutputFile = resolve(repoDir, 'security_checks_results.md');
 
 /** Wraps the shared runCLI so the default scan target is this file's repo copy. */
 function runCLI(
@@ -70,7 +71,7 @@ async function readResults(): Promise<Record<string, unknown>> {
 }
 
 async function cleanupOutput(): Promise<void> {
-  for (const f of [outputFile, sarifOutputFile, csvOutputFile, htmlOutputFile]) {
+  for (const f of [outputFile, sarifOutputFile, csvOutputFile, htmlOutputFile, markdownOutputFile]) {
     try {
       await unlink(f);
     } catch {
@@ -758,6 +759,70 @@ describe('CLI mock mode: output format', () => {
     assert.ok(combined.includes('Unknown output format'), 'Should mention unknown format');
     assert.ok(combined.includes('json'), 'Should list json as available');
     assert.ok(combined.includes('sarif'), 'Should list sarif as available');
+    assert.ok(combined.includes('markdown'), 'Should list markdown as available');
+  });
+
+  it('--output-format markdown with PASS writes a Markdown report with all required sections', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'markdown'],
+    );
+    assert.equal(exitCode, 0);
+    await access(markdownOutputFile);
+
+    const md = await readFile(markdownOutputFile, 'utf-8');
+    assert.ok(md.startsWith('# Security Scan Report'), 'Should start with the H1 title');
+    assert.ok(md.includes('## Executive Summary'));
+    assert.ok(md.includes('## Summary Table'));
+    assert.ok(md.includes('## Detailed Findings'));
+    assert.ok(md.includes('## Statistics'));
+    // Mock provider name should appear in the header
+    assert.ok(md.includes('mock'));
+    // Output ends with exactly one trailing newline (formatter contract).
+    assert.ok(md.endsWith('\n'), 'file ends with a newline');
+    assert.ok(!md.endsWith('\n\n'), 'file does not end with a double newline');
+  });
+
+  it('--output-format markdown with FAIL renders an Issue block with code and language tag', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'markdown'],
+    );
+    assert.equal(exitCode, 0);
+
+    const md = await readFile(markdownOutputFile, 'utf-8');
+    assert.ok(md.includes('## Detailed Findings'));
+    assert.ok(md.includes('#### Issue 1:'), 'Should render an issue subsection');
+    // failFixtureRepo targets src/example.ts; pin the assertion to a fence
+    // beginning at the start of a line so a regression that swaps the
+    // language tag (e.g. to "tsx") is caught instead of silently passing.
+    assert.ok(/^```ts$/m.test(md), 'snippet fence opens with ```ts at start of a line');
+  });
+
+  it('Markdown format does not write .json or .sarif file', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'markdown'],
+    );
+    await assert.rejects(access(outputFile), 'Should NOT create .json file');
+    await assert.rejects(access(sarifOutputFile), 'Should NOT create .sarif file');
+  });
+
+  it('summary banner shows correct .md path for markdown format', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'markdown'],
+    );
+    const combined = stdout + stderr;
+    // Strong assertion: the banner must reference the actual `.md` output
+    // file path (not just the substring `.md`), and must NOT mention a
+    // sibling `.json` / `.sarif` path.
+    assert.ok(
+      combined.includes(markdownOutputFile),
+      `banner should reference ${markdownOutputFile}, got: ${combined}`,
+    );
+    assert.ok(!combined.includes(outputFile), 'banner should not mention .json output');
+    assert.ok(!combined.includes(sarifOutputFile), 'banner should not mention .sarif output');
   });
 
   it('--output-format with no value exits with code 1', async () => {
