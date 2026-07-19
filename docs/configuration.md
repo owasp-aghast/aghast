@@ -59,8 +59,62 @@ The check registry controls which checks are available and which repositories th
 | `repositories`        | `string[]` | Yes      | Repository URLs this check applies to. Empty array `[]` means all repositories |
 | `excludeRepositories` | `string[]` | No       | Repository URLs to skip for this check. Exclusion wins over inclusion. Useful with `"repositories": []` for "all repos except these" |
 | `enabled`             | `boolean`  | No       | Set to `false` to disable a check (default: `true`) |
+| `priority`            | `number`   | No       | Execution order. Non-negative integer; lower values run first. Checks without a priority sort to the end (stable order). Useful for running fast/cheap checks before expensive ones |
+| `matchCriteria`       | `object`   | No       | Dynamic repository-matching rules. Evaluated *in addition* to `repositories` — an explicit repository match always wins; criteria can only ADD matches. See [Dynamic repository matching](#dynamic-repository-matching) below |
 
 Repository matching (for both `repositories` and `excludeRepositories`) uses bidirectional substring matching on normalized paths — so `"foo"` matches both `org/foo` and `org/foobar`. If the same string appears in both lists, exclusion wins.
+
+### Dynamic repository matching
+
+Set `matchCriteria` on a Layer 1 entry to apply the check based on repository
+characteristics rather than (or in addition to) an explicit `repositories`
+list. Multiple criteria are AND'd together — a check matches when every
+configured criterion matches the target repo.
+
+```json
+{
+  "id": "aghast-typescript-only",
+  "repositories": [],
+  "matchCriteria": {
+    "hasFileTypes": [".ts", ".tsx"],
+    "hasFiles": ["package.json"],
+    "hasPaths": ["src/api/**", "src/routes/**"],
+    "tags": ["backend", "api-service"]
+  }
+}
+```
+
+| Criterion       | Type       | Match when |
+|-----------------|------------|------------|
+| `hasFileTypes`  | `string[]` | The repo contains at least one file with one of the listed extensions (leading dot optional, e.g. `".ts"` or `"ts"`) |
+| `hasFiles`      | `string[]` | EVERY listed entry exists. Each entry is matched as a literal repo-relative path first; if it contains glob metacharacters, falls back to glob (`picomatch`) |
+| `hasPaths`      | `string[]` | At least one file in the repo matches at least one of the supplied glob patterns |
+| `tags`          | `string[]` | EVERY listed tag appears in `<repo>/.aghast-tags` (newline-separated, `#` comments) and/or `<repo>/.aghast.json` `tags` array. Tag matching is **case-sensitive** — use the same casing in both files and your `matchCriteria.tags` |
+
+**Notes**
+
+- Explicit-list matches always win: if a check's `repositories` list matches
+  the target repo, the check is included regardless of `matchCriteria`. Criteria
+  only *add* matches.
+- The repository filesystem walk skips a sensible default ignore list
+  (`node_modules`, `.git`, `dist`, `build`, `.worktrees`, `.next`, `.nuxt`,
+  `.venv`, `venv`, `__pycache__`, `target`, `coverage`). As a result,
+  `hasFiles` / `hasPaths` cannot reference files inside these directories
+  (e.g. `hasFiles: [".git/HEAD"]` will never match).
+- The walk results are **cached** per repository for the duration of a scan,
+  so multiple checks consulting `matchCriteria` for the same repo trigger
+  the filesystem traversal only once. Successive programmatic invocations of
+  `runScan` reset the cache so scans never reuse a stale snapshot.
+- The walk is **bounded**: at most ~50,000 files and 12 levels of directory
+  depth are inspected. On extremely large monorepos, files past the cap are
+  not considered when evaluating `matchCriteria`. Run with `--debug` to see
+  a log line if the cap is hit.
+- `.aghast.json` is reserved for future aghast repo-level configuration. Today
+  only its `tags` array is consumed by dynamic matching; other fields are
+  ignored.
+- An empty `matchCriteria` object (`{}`) is rejected by config validation —
+  every populated `matchCriteria` must specify at least one of `hasFileTypes`,
+  `hasFiles`, `hasPaths`, or `tags`.
 
 ## Layer 2: Check Definition (`<id>.json`)
 

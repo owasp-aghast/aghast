@@ -17,6 +17,7 @@ import type {
 } from './types.js';
 import { getCheckType, getValidCheckTypes } from './check-types.js';
 import { getRegisteredDiscoveries } from './discovery.js';
+import { evaluateMatchCriteria, getRepoSnapshot } from './repo-scan.js';
 
 // --- Layer 1: Check Registry ---
 
@@ -96,6 +97,63 @@ export async function loadCheckRegistry(configDir: string): Promise<CheckRegistr
     }
     if (obj.enabled !== undefined && typeof obj.enabled !== 'boolean') {
       throw new Error(`Config file "${configPath}": checks[${i}].enabled must be a boolean`);
+    }
+    if (obj.priority !== undefined) {
+      if (typeof obj.priority !== 'number' || !Number.isInteger(obj.priority) || obj.priority < 0) {
+        throw new Error(
+          `Config file "${configPath}": checks[${i}].priority must be a non-negative integer`,
+        );
+      }
+    }
+    if (obj.matchCriteria !== undefined) {
+      if (typeof obj.matchCriteria !== 'object' || obj.matchCriteria === null || Array.isArray(obj.matchCriteria)) {
+        throw new Error(
+          `Config file "${configPath}": checks[${i}].matchCriteria must be an object`,
+        );
+      }
+      const mc = obj.matchCriteria as Record<string, unknown>;
+      const stringArrayFields = ['hasFileTypes', 'hasFiles', 'hasPaths', 'tags'] as const;
+      let populatedFieldCount = 0;
+      for (const field of stringArrayFields) {
+        const val = mc[field];
+        if (val === undefined) continue;
+        if (!Array.isArray(val)) {
+          throw new Error(
+            `Config file "${configPath}": checks[${i}].matchCriteria.${field} must be an array of strings`,
+          );
+        }
+        for (let k = 0; k < val.length; k++) {
+          if (typeof val[k] !== 'string') {
+            throw new Error(
+              `Config file "${configPath}": checks[${i}].matchCriteria.${field}[${k}] must be a string`,
+            );
+          }
+          if ((val[k] as string).trim() === '') {
+            throw new Error(
+              `Config file "${configPath}": checks[${i}].matchCriteria.${field}[${k}] must be a non-empty string`,
+            );
+          }
+        }
+        if (val.length > 0) populatedFieldCount++;
+      }
+      // Reject unknown keys to surface typos
+      const allowed = new Set(stringArrayFields as readonly string[]);
+      for (const key of Object.keys(mc)) {
+        if (!allowed.has(key)) {
+          throw new Error(
+            `Config file "${configPath}": checks[${i}].matchCriteria has unknown field "${key}". ` +
+              `Allowed: ${[...allowed].join(', ')}`,
+          );
+        }
+      }
+      // Reject empty / all-empty matchCriteria — would silently match nothing
+      // and is almost always a config typo.
+      if (populatedFieldCount === 0) {
+        throw new Error(
+          `Config file "${configPath}": checks[${i}].matchCriteria must specify at least one of: ` +
+            `${[...allowed].join(', ')}`,
+        );
+      }
     }
   }
 
@@ -384,6 +442,9 @@ export async function resolveChecks(
       checkDir: folderPath,
     };
 
+    if (entry.matchCriteria) merged.matchCriteria = entry.matchCriteria;
+    if (entry.priority !== undefined) merged.priority = entry.priority;
+
     if (def.severity) merged.severity = def.severity;
     if (def.confidence) merged.confidence = def.confidence;
     if (def.model) merged.model = def.model;
@@ -554,6 +615,10 @@ export function checkMatchesRepository(
 /**
  * Filter checks to those matching the given repository URL/path.
  * Also filters out disabled checks (enabled === false).
+ *
+ * Note: this synchronous variant ignores `matchCriteria` (no filesystem
+ * access). For full dynamic-matching support use
+ * `filterChecksForRepositoryAsync`.
  */
 export function filterChecksForRepository(
   checks: SecurityCheck[],
@@ -563,6 +628,80 @@ export function filterChecksForRepository(
     .filter((check) => check.enabled !== false)
     .filter((check) => checkMatchesRepository(check, repositoryUrl));
 }
+
+/**
+ * Async variant that additionally evaluates `matchCriteria` against the target
+ * repository's filesystem/tags. The repo snapshot is cached so repeated calls
+ * for the same `repositoryPath` walk the tree only once.
+ *
+ * Matching semantics:
+ * - If a check has an explicit repository in its `repositories` list that
+ *   matches `repositoryUrl`, it is included regardless of `matchCriteria`
+ *   (explicit match wins; criteria can only ADD matches).
+ * - Otherwise, if `matchCriteria` is set and evaluates true against the repo
+ *   snapshot, the check is included.
+ */
+export async function filterChecksForRepositoryAsync(
+  checks: SecurityCheck[],
+  repositoryUrl: string,
+  repositoryPath: string,
+): Promise<SecurityCheck[]> {
+  const enabled = checks.filter((c) => c.enabled !== false);
+
+  let needsSnapshot = false;
+  for (const check of enabled) {
+    if (!checkMatchesRepository(check, repositoryUrl) && check.matchCriteria) {
+      needsSnapshot = true;
+      break;
+    }
+  }
+
+  if (!needsSnapshot) {
+    return enabled.filter((c) => checkMatchesRepository(c, repositoryUrl));
+  }
+
+  // One filesystem walk shared across all criteria checks for this repo.
+  // `repositoryPath` is expected to be absolute (CLI resolves it at parse
+  // time); resolving again would double-normalise on Windows and could
+  // produce a second cache entry for the same physical path under a
+  // different drive-letter casing.
+  const snapshot = await getRepoSnapshot(repositoryPath);
+
+  const result: SecurityCheck[] = [];
+  for (const check of enabled) {
+    if (checkMatchesRepository(check, repositoryUrl)) {
+      result.push(check);
+      continue;
+    }
+    if (check.matchCriteria && evaluateMatchCriteria(check.matchCriteria, snapshot)) {
+      result.push(check);
+    }
+  }
+  return result;
+}
+
+/**
+ * Sort checks by `priority` ascending (lower runs first). Stable: checks
+ * without a priority preserve their relative order and sort to the end.
+ *
+ * Returns a new array; does not mutate the input.
+ */
+export function sortChecksByPriority(checks: SecurityCheck[]): SecurityCheck[] {
+  // Decorate with original index for stable sort across all engines.
+  const decorated = checks.map((check, index) => ({ check, index }));
+  decorated.sort((a, b) => {
+    const ap = a.check.priority;
+    const bp = b.check.priority;
+    if (ap === bp) return a.index - b.index;
+    if (ap === undefined) return 1;
+    if (bp === undefined) return -1;
+    return ap - bp;
+  });
+  return decorated.map((d) => d.check);
+}
+
+// Re-export for callers building custom pipelines.
+export type { MatchCriteria } from './types.js';
 
 // --- Markdown Parsing (spec A.7) ---
 

@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "id": "aghast-no-priority",
+      "repositories": [],
+      "enabled": true
+    },
+    {
+      "id": "aghast-runs-second",
+      "repositories": [],
+      "enabled": true,
+      "priority": 20
+    },
+    {
+      "id": "aghast-criteria-only",
+      "repositories": ["does-not-match-this-repo"],
+      "enabled": true,
+      "priority": 5,
+      "matchCriteria": {
+        "hasFileTypes": [".ts"]
+      }
+    },
+    {
+      "id": "aghast-criteria-skipped",
+      "repositories": ["does-not-match-either"],
+      "enabled": true,
+      "matchCriteria": {
+        "hasFileTypes": [".rs"]
+      }
+    },
+    {
+      "id": "aghast-runs-first",
+      "repositories": [],
+      "enabled": true,
+      "priority": 1
+    }
+  ]
+}

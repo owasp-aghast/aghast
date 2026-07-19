@@ -31,11 +31,37 @@ export interface TokenUsage {
 
 // --- A.1a Check Registry Entry (Layer 1) ---
 
+/**
+ * Dynamic repository matching criteria.
+ * Evaluated in addition to the explicit `repositories` list (does not replace it):
+ * an explicit match always wins; criteria add additional repos.
+ *
+ * - hasFileTypes: file extensions (e.g. ".ts"). Matches if the repo contains
+ *   at least one file with one of these extensions.
+ * - hasFiles: literal paths or glob patterns. Matches if all listed paths exist.
+ * - hasPaths: glob patterns. Matches if at least one path matches.
+ * - tags: tags read from `<repo>/.aghast-tags` (newline-separated) or
+ *   `<repo>/.aghast.json` `tags` array. Matches if all listed tags are present.
+ */
+export interface MatchCriteria {
+  hasFileTypes?: string[];
+  hasFiles?: string[];
+  hasPaths?: string[];
+  tags?: string[];
+}
+
 export interface CheckRegistryEntry {
   id: string;
   repositories: string[];
   excludeRepositories?: string[];
   enabled?: boolean;
+  /** Dynamic repository matching criteria. Adds matches; does not exclude explicit ones. */
+  matchCriteria?: MatchCriteria;
+  /**
+   * Execution order. Lower runs first. Checks without a priority sort to the end (stable).
+   * Must be a non-negative integer when set.
+   */
+  priority?: number;
 }
 
 // --- A.1b Check Definition (Layer 2) ---
@@ -70,6 +96,10 @@ export interface SecurityCheck {
   model?: string;
   /** Path to the check folder (set during resolution). */
   checkDir?: string;
+  /** Dynamic repository matching criteria (Layer 1). */
+  matchCriteria?: MatchCriteria;
+  /** Execution order — lower runs first; unset sorts to end (stable). */
+  priority?: number;
 }
 
 // --- A.2 Check Target Definition ---
@@ -272,6 +302,25 @@ export interface CIMetadata {
    * field. Consumers should treat the value as an opaque string and not
    * assume a unified vocabulary across platforms.
    */
+  pipelineSource?: string;
+  /** ISO-8601 timestamp for when the CI/CD job started. */
+  jobStartedAt?: string;
+}
+
+// --- A.5a CI/CD Metadata (spec E.4) ---
+
+/**
+ * CI/CD pipeline context captured during a scan run. Populated automatically
+ * from environment variables when aghast detects it is running inside a
+ * supported CI/CD platform (GitHub Actions, GitLab CI, CircleCI). All fields
+ * are optional in case detection is partial.
+ */
+export interface CIMetadata {
+  /** URL of the CI/CD job that produced this scan. */
+  jobUrl?: string;
+  /** Branch (or ref) that was scanned. */
+  branch?: string;
+  /** What triggered the pipeline (e.g. `push`, `pull_request`, `schedule`). */
   pipelineSource?: string;
   /** ISO-8601 timestamp for when the CI/CD job started. */
   jobStartedAt?: string;
