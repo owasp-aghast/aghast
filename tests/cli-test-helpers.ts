@@ -6,10 +6,11 @@
  */
 
 import { execFile } from 'node:child_process';
-import { statSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { statSync, mkdtempSync, cpSync } from 'node:fs';
+import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { CI_ENV_VAR_NAMES } from '../src/ci-metadata.js';
 
 export const testDir = dirname(fileURLToPath(import.meta.url));
@@ -187,6 +188,40 @@ export async function cleanupOutput(): Promise<void> {
 export async function readResults(): Promise<Record<string, unknown>> {
   const raw = await readFile(outputFile, 'utf-8');
   return JSON.parse(raw) as Record<string, unknown>;
+}
+
+/**
+ * Copies the git-repo fixture into a fresh temp directory and returns its path.
+ *
+ * Use this for tests that must exercise the **default** output path (i.e. that
+ * deliberately omit `--output` and then assert on
+ * `<repo>/security_checks_results.json`). Those tests cannot use
+ * `createScopedHelpers`, because scoping works by passing `--output` — which is
+ * exactly the behaviour under test, so scoping them would make them pass
+ * vacuously.
+ *
+ * Writing into a per-test temp copy keeps the default path genuinely exercised
+ * while giving each test file its own target, so concurrent files no longer
+ * race over the one shared fixture path.
+ *
+ * Synchronous by design: it runs at module load so the path is a plain const,
+ * avoiding async before/after hooks whose ordering against describe blocks is
+ * fragile in node:test. Temp dirs are left for the OS to reclaim.
+ */
+export function createTempRepoCopy(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `aghast-${prefix}-`));
+  cpSync(fixtureRepo, dir, {
+    recursive: true,
+    // Skip scan output. `createScopedHelpers` writes its scoped reports
+    // (security_checks_results_<prefix>.json/.sarif) into the fixture repo, and
+    // those files are created and deleted while other test files run
+    // concurrently. Without this filter, cpSync can enumerate such a file and
+    // then fail with ENOENT when its owning test deletes it before the copy
+    // reaches it. They are build artefacts, not fixture content, so a fresh
+    // copy should not carry them anyway.
+    filter: (src) => !basename(src).startsWith('security_checks_results'),
+  });
+  return dir;
 }
 
 /**

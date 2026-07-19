@@ -18,11 +18,6 @@ import { MOCK_MODEL_NAME } from '../src/types.js';
 import {
   semgrepInstalled,
   testDir as __dirname,
-  fixtureRepo,
-  outputFile,
-  sarifOutputFile,
-  csvOutputFile,
-  htmlOutputFile,
   singleCheckConfigDir,
   multiCheckConfigDir,
   repoFilteredConfigDir,
@@ -40,10 +35,49 @@ import {
   malformedFixture,
   missingFieldsFixture,
   dataFlowFixture,
-  runCLI,
-  cleanupOutput,
-  readResults,
+  runCLI as baseRunCLI,
+  createTempRepoCopy,
 } from './cli-test-helpers.js';
+
+// This file scans its own private copy of the fixture repo.
+//
+// Many tests here deliberately omit --output to assert the *default* output
+// path and its per-format naming (.json/.sarif/.csv/.html), so they cannot be
+// scoped by passing --output. Previously every CLI test file wrote those
+// defaults into the one shared `fixtures/git-repo/`, and each file's
+// `afterEach` cleanup deleted them — so concurrently running files raced,
+// producing intermittent ENOENT on whichever test happened to be mid-assertion.
+//
+// A per-file copy keeps the default-path behaviour genuinely under test while
+// giving this file a target nothing else touches.
+const repoDir = createTempRepoCopy('mock-mode');
+const outputFile = resolve(repoDir, 'security_checks_results.json');
+const sarifOutputFile = resolve(repoDir, 'security_checks_results.sarif');
+const csvOutputFile = resolve(repoDir, 'security_checks_results.csv');
+const htmlOutputFile = resolve(repoDir, 'security_checks_results.html');
+
+/** Wraps the shared runCLI so the default scan target is this file's repo copy. */
+function runCLI(
+  env: Record<string, string | undefined> = {},
+  args?: string[],
+  options: { timeout?: number } = {},
+) {
+  return baseRunCLI(env, args ?? [repoDir, '--config-dir', singleCheckConfigDir], options);
+}
+
+async function readResults(): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(outputFile, 'utf-8')) as Record<string, unknown>;
+}
+
+async function cleanupOutput(): Promise<void> {
+  for (const f of [outputFile, sarifOutputFile, csvOutputFile, htmlOutputFile]) {
+    try {
+      await unlink(f);
+    } catch {
+      // File may not exist; that's fine
+    }
+  }
+}
 
 const emptyInstructionsConfigDir = resolve(
   __dirname,
@@ -103,7 +137,7 @@ describe('CLI mock mode: invalid check instructions', () => {
   it('does not run a repository check with an empty instructions file', async () => {
     const { exitCode, stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', emptyInstructionsConfigDir],
+      [repoDir, '--config-dir', emptyInstructionsConfigDir],
     );
 
     assert.equal(exitCode, 1);
@@ -164,12 +198,14 @@ describe('CLI mock mode: ScanResults output structure', () => {
     assert.ok(agentProvider.models.includes(MOCK_MODEL_NAME), `models should include "${MOCK_MODEL_NAME}"`);
   });
 
-  it('repository info contains the fixture repo path', async () => {
+  it('repository info contains the scanned repo path', async () => {
     await runCLI({ AGHAST_MOCK_AI: 'true' });
     const results = await readResults();
     const repo = results.repository as Record<string, unknown>;
     assert.equal(typeof repo.path, 'string');
-    assert.ok((repo.path as string).includes('git-repo'), 'repo path should reference fixture repo');
+    // Asserts the exact target rather than a substring: this file scans its own
+    // copy of the fixture repo, so the path is the copy, not tests/fixtures/git-repo.
+    assert.equal(repo.path, repoDir, 'repo path should be the scanned repo');
   });
 
   it('summary fields are consistent with checks', async () => {
@@ -222,7 +258,7 @@ describe('CLI mock mode: check ID and name from config', () => {
   it('multi-check config produces distinct checkIds and checkNames', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', multiCheckConfigDir],
+      [repoDir, '--config-dir', multiCheckConfigDir],
     );
     const results = await readResults();
     const checks = results.checks as Array<Record<string, unknown>>;
@@ -442,7 +478,7 @@ describe('CLI mock mode: config-based multi-check', () => {
   it('runs multiple checks from config file', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', multiCheckConfigDir],
+      [repoDir, '--config-dir', multiCheckConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -462,7 +498,7 @@ describe('CLI mock mode: config-based multi-check', () => {
   it('each check has distinct checkId from config', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', multiCheckConfigDir],
+      [repoDir, '--config-dir', multiCheckConfigDir],
     );
     const results = await readResults();
     const checks = results.checks as Array<Record<string, unknown>>;
@@ -474,7 +510,7 @@ describe('CLI mock mode: config-based multi-check', () => {
   it('each check has checkName from markdown heading', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', multiCheckConfigDir],
+      [repoDir, '--config-dir', multiCheckConfigDir],
     );
     const results = await readResults();
     const checks = results.checks as Array<Record<string, unknown>>;
@@ -486,7 +522,7 @@ describe('CLI mock mode: config-based multi-check', () => {
   it('stdout summary shows correct total checks count', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', multiCheckConfigDir],
+      [repoDir, '--config-dir', multiCheckConfigDir],
     );
     const combined = stdout + stderr;
     assert.ok(combined.includes('Total checks:  2'), 'Summary should show 2 total checks');
@@ -501,7 +537,7 @@ describe('CLI mock mode: repository filtering', () => {
   it('only runs checks matching the repository', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', repoFilteredConfigDir],
+      [repoDir, '--config-dir', repoFilteredConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -518,7 +554,7 @@ describe('CLI mock mode: repository filtering', () => {
   it('produces empty results when no checks match', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', repoFilteredConfigDir],
+      [repoDir, '--config-dir', repoFilteredConfigDir],
     );
     const combined = stdout + stderr;
     assert.ok(
@@ -536,7 +572,7 @@ describe('CLI mock mode: disabled checks', () => {
   it('skips disabled checks', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', disabledConfigDir],
+      [repoDir, '--config-dir', disabledConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -554,7 +590,7 @@ describe('CLI mock mode: disabled checks', () => {
   it('stdout shows only enabled check count', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', disabledConfigDir],
+      [repoDir, '--config-dir', disabledConfigDir],
     );
     const combined = stdout + stderr;
     assert.ok(
@@ -572,7 +608,7 @@ describe('CLI mock mode: config error handling', () => {
   it('exits with code 1 when config dir has no checks-config.json', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', resolve(__dirname, 'nonexistent-config-dir')],
+      [repoDir, '--config-dir', resolve(__dirname, 'nonexistent-config-dir')],
     );
     assert.equal(exitCode, 1);
     assert.ok(stderr.includes('missing checks-config.json'), 'Should report missing checks-config.json');
@@ -581,7 +617,7 @@ describe('CLI mock mode: config error handling', () => {
   it('exits with code 1 when checks-config.json has invalid JSON', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', invalidConfigDir],
+      [repoDir, '--config-dir', invalidConfigDir],
     );
     assert.equal(exitCode, 1);
     assert.ok(stderr.includes('invalid JSON') || stderr.includes('Fatal Error'), 'Should show error for invalid JSON');
@@ -613,7 +649,7 @@ describe('CLI mock mode: dataFlow support', () => {
   it('SARIF output includes codeFlows when dataFlow is present', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: dataFlowFixture },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
     );
 
     const raw = await readFile(sarifOutputFile, 'utf-8');
@@ -652,7 +688,7 @@ describe('CLI mock mode: output format', () => {
   it('--output-format json produces same as default', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'json'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'json'],
     );
     assert.equal(exitCode, 0);
     await access(outputFile);
@@ -664,7 +700,7 @@ describe('CLI mock mode: output format', () => {
   it('--output-format sarif with PASS writes .sarif with valid structure', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
     );
     assert.equal(exitCode, 0);
     await access(sarifOutputFile);
@@ -682,7 +718,7 @@ describe('CLI mock mode: output format', () => {
   it('--output-format sarif with FAIL produces results with correct fields', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: failFixtureRepo },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
     );
     assert.equal(exitCode, 0);
 
@@ -704,7 +740,7 @@ describe('CLI mock mode: output format', () => {
   it('SARIF format does not write .json file', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
     );
     await assert.rejects(
       access(outputFile),
@@ -715,7 +751,7 @@ describe('CLI mock mode: output format', () => {
   it('unknown format exits with code 1 and lists available formats', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'xml'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'xml'],
     );
     assert.equal(exitCode, 1);
     const combined = stderr;
@@ -727,7 +763,7 @@ describe('CLI mock mode: output format', () => {
   it('--output-format with no value exits with code 1', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format'],
     );
     assert.equal(exitCode, 1);
     assert.ok(stderr.includes('--output-format requires'), 'Should show missing argument error');
@@ -736,7 +772,7 @@ describe('CLI mock mode: output format', () => {
   it('summary banner shows correct .sarif path', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
     );
     const combined = stdout + stderr;
     assert.ok(combined.includes('.sarif'), 'Summary should show .sarif path');
@@ -751,7 +787,7 @@ describe('CLI mock mode: CSV output format', () => {
   it('--output-format csv with PASS writes a .csv with header row only', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
     );
     assert.equal(exitCode, 0);
     await access(csvOutputFile);
@@ -765,7 +801,7 @@ describe('CLI mock mode: CSV output format', () => {
   it('--output-format csv with FAIL writes one row per issue', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: failFixtureRepo },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
     );
     assert.equal(exitCode, 0);
     await access(csvOutputFile);
@@ -780,7 +816,7 @@ describe('CLI mock mode: CSV output format', () => {
   it('CSV format does not write .json file', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
     );
     await assert.rejects(
       access(outputFile),
@@ -791,7 +827,7 @@ describe('CLI mock mode: CSV output format', () => {
   it('summary banner shows correct .csv path', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
     );
     const combined = stdout + stderr;
     assert.ok(combined.includes('.csv'), 'Summary should show .csv path');
@@ -806,7 +842,7 @@ describe('CLI mock mode: HTML output format', () => {
   it('--output-format html with PASS writes a self-contained HTML file', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
     );
     assert.equal(exitCode, 0);
     await access(htmlOutputFile);
@@ -821,7 +857,7 @@ describe('CLI mock mode: HTML output format', () => {
   it('--output-format html with FAIL embeds issue data in the HTML', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: failFixtureRepo },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
     );
     assert.equal(exitCode, 0);
     await access(htmlOutputFile);
@@ -836,7 +872,7 @@ describe('CLI mock mode: HTML output format', () => {
   it('HTML format does not write .json file', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
     );
     await assert.rejects(
       access(outputFile),
@@ -847,7 +883,7 @@ describe('CLI mock mode: HTML output format', () => {
   it('summary banner shows correct .html path', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
     );
     const combined = stdout + stderr;
     assert.ok(combined.includes('.html'), 'Summary should show .html path');
@@ -873,7 +909,7 @@ describe('CLI mock mode: --generic-prompt flag', () => {
     await copyFile(customPromptFixture, customPromptTarget);
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir,       '--generic-prompt', 'aghast-test-b7f3e9a2d1c4.md'],
+      [repoDir, '--config-dir', singleCheckConfigDir,       '--generic-prompt', 'aghast-test-b7f3e9a2d1c4.md'],
     );
     assert.equal(exitCode, 0);
 
@@ -885,7 +921,7 @@ describe('CLI mock mode: --generic-prompt flag', () => {
   it('non-existent prompt file exits with code 1', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir,       '--generic-prompt', 'nonexistent-prompt.md'],
+      [repoDir, '--config-dir', singleCheckConfigDir,       '--generic-prompt', 'nonexistent-prompt.md'],
     );
     assert.equal(exitCode, 1);
     assert.ok(stderr.includes('Fatal Error'), 'Should show fatal error for missing prompt file');
@@ -894,7 +930,7 @@ describe('CLI mock mode: --generic-prompt flag', () => {
   it('path traversal in filename is rejected', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir,       '--generic-prompt', '../ai-checks/foo.md'],
+      [repoDir, '--config-dir', singleCheckConfigDir,       '--generic-prompt', '../ai-checks/foo.md'],
     );
     assert.equal(exitCode, 1);
     assert.ok(
@@ -906,7 +942,7 @@ describe('CLI mock mode: --generic-prompt flag', () => {
   it('backslash path separator in filename is rejected', async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', singleCheckConfigDir,       '--generic-prompt', 'subdir\\prompt.md'],
+      [repoDir, '--config-dir', singleCheckConfigDir,       '--generic-prompt', 'subdir\\prompt.md'],
     );
     assert.equal(exitCode, 1);
     assert.ok(
@@ -924,7 +960,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('PASS: default mock response with 3 targets → PASS, targetsAnalyzed: 3', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -946,7 +982,7 @@ describe('CLI mock mode: multi-target checks', () => {
         AGHAST_MOCK_AI: failFixtureRepo,
         AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -978,7 +1014,7 @@ describe('CLI mock mode: multi-target checks', () => {
         AGHAST_MOCK_AI: multiIssueFixture,
         AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
-      [fixtureRepo, '--config-dir', multiTargetCappedConfigDir],
+      [repoDir, '--config-dir', multiTargetCappedConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1004,7 +1040,7 @@ describe('CLI mock mode: multi-target checks', () => {
         AGHAST_MOCK_AI: multiIssueFixture,
         AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
 
     const results = await readResults();
@@ -1015,7 +1051,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('empty SARIF: 0 targets → PASS, targetsAnalyzed: 0', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: emptyResultsSarif },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1030,7 +1066,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('missing Semgrep (no mock) → exits 1 with informative message', { skip: semgrepInstalled }, async () => {
     const { exitCode, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
 
     // Semgrep is not installed: should exit early with a clear error
@@ -1044,7 +1080,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('repository-wide check in mixed config still works (no regression)', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
-      [fixtureRepo, '--config-dir', mixedChecksConfigDir],
+      [repoDir, '--config-dir', mixedChecksConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1070,7 +1106,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('targetsAnalyzed present in check summary output', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1087,7 +1123,7 @@ describe('CLI mock mode: multi-target checks', () => {
         AGHAST_MOCK_AI: failFixtureRepo,
         AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1107,7 +1143,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('stdout shows PASS in summary banner for multi-target', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     const combined = stdout + stderr;
     assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Summary banner should show NO ISSUES DETECTED');
@@ -1116,7 +1152,7 @@ describe('CLI mock mode: multi-target checks', () => {
   it('SARIF result without endLine is processed (endLine defaults to startLine)', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: noEndlineSarif },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1137,7 +1173,7 @@ describe('CLI mock mode: concurrency progress output', () => {
   it('stdout/stderr contains concurrency and progress messages', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SARIF: cli3TargetsSarif },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     const combined = stdout + stderr;
     assert.ok(
@@ -1156,7 +1192,7 @@ describe('CLI mock mode: concurrency progress output', () => {
         AGHAST_MOCK_AI: failFixtureRepo,
         AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
-      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+      [repoDir, '--config-dir', multiTargetConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -1190,7 +1226,7 @@ describe('CLI: conditional prerequisite validation', () => {
         AGHAST_MOCK_AI: '',
         AGHAST_MOCK_SARIF: emptyResultsSarif,
       },
-      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+      [repoDir, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0, `Expected exit 0 but got ${exitCode}. stderr: ${stderr}`);
     assert.ok(!stderr.includes('ANTHROPIC_API_KEY'), 'Should not require API key for static checks');
@@ -1209,7 +1245,7 @@ describe('CLI: conditional prerequisite validation', () => {
         AGHAST_MOCK_AI: '',
         AGHAST_MOCK_SARIF: cli3TargetsSarif,
       },
-      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+      [repoDir, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0, `Expected exit 0 but got ${exitCode}. stderr: ${stderr}`);
 
