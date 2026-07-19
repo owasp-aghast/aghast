@@ -9,8 +9,9 @@
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-import { readFile, unlink, access } from 'node:fs/promises';
+import { resolve, join, dirname } from 'node:path';
+import { readFile, unlink, access, writeFile, mkdtemp, rm, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import {
   testDir as __dirname,
   fixtureRepo,
@@ -872,5 +873,98 @@ describe('CLI: --generic-prompt with mixed discovery types', () => {
       stderr.includes('--generic-prompt') && stderr.includes('different discovery types'),
       `Expected mixed discovery error, got: ${stderr}`,
     );
+  });
+});
+
+// ─── Stretch E.3.2: Individual issue files ───────────────────────────────────
+
+async function writeRuntimeConfigFile(reporting: Record<string, unknown>): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'aghast-rc-'));
+  const cfgPath = resolve(dir, 'runtime-config.json');
+  await writeFile(cfgPath, JSON.stringify({ reporting }), 'utf-8');
+  return cfgPath;
+}
+
+describe('CLI: individual issue files (runtime config)', () => {
+  afterEach(cleanupOutput);
+
+  it('writes one markdown file per issue when enabled in runtime config', async () => {
+    const runtimeConfigPath = await writeRuntimeConfigFile({ includeIndividualIssueFiles: true });
+    const outputDir = await mkdtemp(join(tmpdir(), 'aghast-out-'));
+    const outputPath = resolve(outputDir, 'security_checks_results.json');
+    try {
+      const { exitCode } = await runCLI(
+        { AGHAST_MOCK_AI: failFixtureRepo },
+        [
+          fixtureRepo,
+          '--config-dir', singleCheckConfigDir,
+          '--runtime-config', runtimeConfigPath,
+          '--output', outputPath,
+        ],
+      );
+      assert.equal(exitCode, 0);
+
+      // Project name derives from basename of fixtureRepo (`git-repo`).
+      const checkDir = resolve(outputDir, 'security_issues_git-repo', 'aghast-sql-injection');
+      const files = await readdir(checkDir);
+      assert.equal(files.length, 1);
+      assert.match(files[0]!, /^issue_001_example\.ts\.md$/);
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+      await rm(dirname(runtimeConfigPath), { recursive: true, force: true });
+    }
+  });
+
+  it('respects individualIssueFormat=html', async () => {
+    const runtimeConfigPath = await writeRuntimeConfigFile({
+      includeIndividualIssueFiles: true,
+      individualIssueFormat: 'html',
+    });
+    const outputDir = await mkdtemp(join(tmpdir(), 'aghast-out-'));
+    const outputPath = resolve(outputDir, 'security_checks_results.json');
+    try {
+      const { exitCode } = await runCLI(
+        { AGHAST_MOCK_AI: failFixtureRepo },
+        [
+          fixtureRepo,
+          '--config-dir', singleCheckConfigDir,
+          '--runtime-config', runtimeConfigPath,
+          '--output', outputPath,
+        ],
+      );
+      assert.equal(exitCode, 0);
+
+      const checkDir = resolve(outputDir, 'security_issues_git-repo', 'aghast-sql-injection');
+      const files = await readdir(checkDir);
+      assert.equal(files.length, 1);
+      assert.match(files[0]!, /\.html$/);
+      const body = await readFile(resolve(checkDir, files[0]!), 'utf-8');
+      assert.ok(body.startsWith('<!doctype html>'));
+      assert.ok(body.includes('SQL Injection Prevention'));
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+      await rm(dirname(runtimeConfigPath), { recursive: true, force: true });
+    }
+  });
+
+  it('does not create issue dir when feature is disabled (default)', async () => {
+    const outputDir = await mkdtemp(join(tmpdir(), 'aghast-out-'));
+    const outputPath = resolve(outputDir, 'security_checks_results.json');
+    try {
+      const { exitCode } = await runCLI(
+        { AGHAST_MOCK_AI: failFixtureRepo },
+        [
+          fixtureRepo,
+          '--config-dir', singleCheckConfigDir,
+          '--output', outputPath,
+        ],
+      );
+      assert.equal(exitCode, 0);
+      // No security_issues_* dir should exist.
+      const entries = await readdir(outputDir);
+      assert.ok(!entries.some(e => e.startsWith('security_issues_')), `Unexpected issue dir: ${entries.join(',')}`);
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
   });
 });

@@ -356,6 +356,10 @@ export interface RuntimeConfig {
   reporting?: {
     outputDirectory?: string;
     outputFormat?: string;
+    /** When true, write a separate file per issue alongside the main report. */
+    includeIndividualIssueFiles?: boolean;
+    /** Format used when `includeIndividualIssueFiles` is true. Default: `markdown`. */
+    individualIssueFormat?: 'markdown' | 'json' | 'html';
   };
   logging?: {
     logFile?: string;

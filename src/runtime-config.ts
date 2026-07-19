@@ -74,6 +74,17 @@ export async function loadRuntimeConfig(configDir?: string, explicitPath?: strin
     if (rpt.outputFormat !== undefined && typeof rpt.outputFormat !== 'string') {
       throw new Error(`Runtime config "${pathToLoad}": "reporting.outputFormat" must be a string`);
     }
+    if (rpt.includeIndividualIssueFiles !== undefined && typeof rpt.includeIndividualIssueFiles !== 'boolean') {
+      throw new Error(`Runtime config "${pathToLoad}": "reporting.includeIndividualIssueFiles" must be a boolean`);
+    }
+    if (rpt.individualIssueFormat !== undefined) {
+      if (typeof rpt.individualIssueFormat !== 'string') {
+        throw new Error(`Runtime config "${pathToLoad}": "reporting.individualIssueFormat" must be a string`);
+      }
+      if (rpt.individualIssueFormat !== 'markdown' && rpt.individualIssueFormat !== 'json' && rpt.individualIssueFormat !== 'html') {
+        throw new Error(`Runtime config "${pathToLoad}": "reporting.individualIssueFormat" must be one of "markdown", "json", "html"`);
+      }
+    }
   }
   if (obj.genericPrompt !== undefined && typeof obj.genericPrompt !== 'string') {
     throw new Error(`Runtime config "${pathToLoad}": "genericPrompt" must be a string`);

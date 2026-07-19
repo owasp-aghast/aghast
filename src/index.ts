@@ -10,6 +10,7 @@ import { runMultiScanWithCost } from './scan-runner.js';
 import { loadDefaultPricing, mergePricing, formatCostSourceLabel } from './cost-calculator.js';
 import type { BudgetLimits } from './budget.js';
 import { saveScanRecord, queryScanHistory, type ScanRecord } from './scan-history.js';
+import { writeIndividualIssueFiles, type IndividualIssueFormat } from './issue-file-writer.js';
 import { createProviderByName, getProviderNames, DEFAULT_PROVIDER_NAME } from './provider-registry.js';
 import {
   loadCheckRegistry,
@@ -768,6 +769,18 @@ export async function runScan(args: string[]): Promise<void> {
     await mkdir(dirname(resolvedOutputPath), { recursive: true });
     await writeFile(resolvedOutputPath, formatter.format(results), 'utf-8');
 
+    // Optional: write one file per issue alongside the main report (Spec E.3.2).
+    let individualIssueDir: string | undefined;
+    let individualIssueCount = 0;
+    if (runtimeConfig.reporting?.includeIndividualIssueFiles && results.issues.length > 0) {
+      const issueFormat: IndividualIssueFormat = runtimeConfig.reporting.individualIssueFormat ?? 'markdown';
+      const issueOutputDir = dirname(resolvedOutputPath);
+      const written = await writeIndividualIssueFiles(results, issueOutputDir, issueFormat);
+      individualIssueDir = written.rootDir;
+      individualIssueCount = written.files.length;
+      logProgress(TAG, `Wrote ${individualIssueCount} individual issue file(s) to ${individualIssueDir}`);
+    }
+
     // Summary output
     const statusIcon =
       results.summary.failedChecks > 0
@@ -805,6 +818,9 @@ export async function runScan(args: string[]): Promise<void> {
     }
     console.log(`  Duration:      ${globalTimer.elapsedStr()}`);
     console.log(`  Results:       ${resolvedOutputPath}`);
+    if (individualIssueDir) {
+      console.log(`  Issue files:   ${individualIssueCount} in ${individualIssueDir}`);
+    }
     console.log('='.repeat(60));
 
     // Persist the scan record to history (best-effort — never blocks exit).
