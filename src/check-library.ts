@@ -217,6 +217,58 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
         `Check definition "${defPath}": "checkTarget.glob" must be a non-empty string when discovery is "glob"`,
       );
     }
+
+    // Validate script-discovery fields
+    if (ct.script !== undefined && typeof ct.script !== 'string') {
+      throw new Error(`Check definition "${defPath}": "checkTarget.script" must be a string`);
+    }
+    if (ct.scriptType !== undefined) {
+      if (typeof ct.scriptType !== 'string' || (ct.scriptType !== 'node' && ct.scriptType !== 'bash')) {
+        throw new Error(
+          `Check definition "${defPath}": "checkTarget.scriptType" must be "node" or "bash"`,
+        );
+      }
+    }
+    if (ct.outputFormat !== undefined) {
+      if (
+        typeof ct.outputFormat !== 'string' ||
+        (ct.outputFormat !== 'lines' &&
+          ct.outputFormat !== 'json-array' &&
+          ct.outputFormat !== 'json-object')
+      ) {
+        throw new Error(
+          `Check definition "${defPath}": "checkTarget.outputFormat" must be one of "lines", "json-array", "json-object"`,
+        );
+      }
+    }
+    if (ct.cwd !== undefined && typeof ct.cwd !== 'string') {
+      throw new Error(`Check definition "${defPath}": "checkTarget.cwd" must be a string`);
+    }
+    if (
+      ct.timeoutMs !== undefined &&
+      (typeof ct.timeoutMs !== 'number' || ct.timeoutMs <= 0 || !Number.isFinite(ct.timeoutMs))
+    ) {
+      throw new Error(
+        `Check definition "${defPath}": "checkTarget.timeoutMs" must be a positive number`,
+      );
+    }
+    if (ct.discovery === 'script') {
+      if (typeof ct.script !== 'string' || ct.script.trim() === '') {
+        throw new Error(
+          `Check definition "${defPath}": "checkTarget.script" is required when discovery is "script"`,
+        );
+      }
+      if (typeof ct.scriptType !== 'string') {
+        throw new Error(
+          `Check definition "${defPath}": "checkTarget.scriptType" is required when discovery is "script"`,
+        );
+      }
+      if (typeof ct.outputFormat !== 'string') {
+        throw new Error(
+          `Check definition "${defPath}": "checkTarget.outputFormat" is required when discovery is "script"`,
+        );
+      }
+    }
     // Validate openant filter config
     if (ct.openant !== undefined) {
       if (typeof ct.openant !== 'object' || ct.openant === null) {

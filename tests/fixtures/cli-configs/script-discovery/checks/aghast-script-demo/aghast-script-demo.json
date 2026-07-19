@@ -1,0 +1,13 @@
+{
+  "id": "aghast-script-demo",
+  "name": "Script Discovery Demo",
+  "instructionsFile": "aghast-script-demo.md",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "script",
+    "scriptType": "node",
+    "script": "discover.cjs",
+    "outputFormat": "lines",
+    "timeoutMs": 15000
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-script-demo",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

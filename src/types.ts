@@ -85,7 +85,7 @@ export interface OpenAntFilterConfig {
 
 export interface CheckTargetDefinition {
   type: 'targeted' | 'static' | 'repository';
-  discovery?: 'semgrep' | 'opengrep' | 'openant' | 'sarif' | 'glob';
+  discovery?: 'semgrep' | 'opengrep' | 'openant' | 'sarif' | 'glob' | 'script';
   rules?: string | string[];
   config?: string;
   sarifFile?: string;
@@ -118,6 +118,16 @@ export interface CheckTargetDefinition {
    *   5. This field (check-level fallback).
    */
   diffRef?: string;
+  /** Script discovery: path to the script (relative to check folder, must resolve inside repo). */
+  script?: string;
+  /** Script discovery: which runtime to invoke. */
+  scriptType?: 'node' | 'bash';
+  /** Script discovery: how the script's stdout is parsed. */
+  outputFormat?: 'lines' | 'json-array' | 'json-object';
+  /** Script discovery: working directory for the script (relative to repo root; defaults to repo root). */
+  cwd?: string;
+  /** Script discovery: timeout in milliseconds (default 30000). */
+  timeoutMs?: number;
 }
 
 // --- A.2b Check Target (discovered location) ---

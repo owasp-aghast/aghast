@@ -239,6 +239,7 @@ The `discovery` field on `checkTarget` specifies how targets are found for `targ
 | `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
 | `glob` | None | Walks the repository and selects whole-file targets matching a glob pattern (e.g. `src/routes/**/*.ts`). Targeted checks only. Always skips: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `dist`, `build`, `.next`, `.nuxt`, `.cache`, `.idea`, `.vscode`. Files larger than 10 MiB and symlinks are also skipped | No |
+| `script` | None (script must be node or bash) | Runs a user-provided discovery script in the repo and parses its stdout into targets. Runs with `shell: false`, a curated environment with secrets stripped, a hard timeout and a bounded stdout. Script and output paths must resolve inside the repo, symlinks included | No |
 
 ### Diff filtering
 
