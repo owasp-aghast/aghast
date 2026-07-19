@@ -48,6 +48,7 @@ export const outputFile = resolve(fixtureRepo, 'security_checks_results.json');
 export const sarifOutputFile = resolve(fixtureRepo, 'security_checks_results.sarif');
 export const csvOutputFile = resolve(fixtureRepo, 'security_checks_results.csv');
 export const htmlOutputFile = resolve(fixtureRepo, 'security_checks_results.html');
+export const markdownOutputFile = resolve(fixtureRepo, 'security_checks_results.md');
 
 // Per-scenario config dirs (each contains checks-config.json and checks/ subfolder)
 export const singleCheckConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'single-check');
@@ -176,7 +177,7 @@ export async function runCLI(
 }
 
 export async function cleanupOutput(): Promise<void> {
-  for (const f of [outputFile, sarifOutputFile, csvOutputFile, htmlOutputFile]) {
+  for (const f of [outputFile, sarifOutputFile, csvOutputFile, htmlOutputFile, markdownOutputFile]) {
     try {
       await unlink(f);
     } catch {

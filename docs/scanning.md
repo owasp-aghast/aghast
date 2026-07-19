@@ -19,7 +19,7 @@ aghast scan <repo-path> --config-dir <path> [options]
 |--------|-------------|
 | `--config-dir <path>` | **(Required)** Config directory containing `checks-config.json` and `checks/` folder |
 | `--output <path>` | Output file path (default: `<repo-path>/security_checks_results.<ext>`) |
-| `--output-format <fmt>` | Output format: `json`, `sarif`, `csv`, `html` (default: `json`) |
+| `--output-format <fmt>` | Output format: `json`, `sarif`, `csv`, `html`, `markdown` (default: `json`) |
 | `--fail-on-check-failure` | Exit with code 1 if any check FAILs or ERRORs |
 | `--debug` | Shorthand for `--log-level debug` |
 | `--log-level <level>` | Console log level: `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
@@ -129,6 +129,7 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 - **JSON** (default) - structured results with summary, per-check details, issues, and token usage
 - **SARIF** - SARIF 2.1.0 output compatible with GitHub Code Scanning and other SARIF viewers
 - **CSV** - one row per issue (plus one row per `ERROR` check) for spreadsheet analysis. UTF-8 encoded, no BOM, RFC 4180 quoting, CRLF line endings. Descriptions are flattened to a single line and truncated to 500 chars. The structured `dataFlow` taint trace is omitted; use SARIF or JSON for the full trace.
+- **Markdown** - human-readable report for pasting into a PR, ticket or wiki. Sections: header, executive summary, per-check status table, detailed findings with fenced code snippets (language tag inferred from file extension), flagged items, errors, statistics, and CI metadata when the scan ran in CI. All user-controlled text is escaped so findings cannot break out of tables or inject markup.
 - **HTML** - self-contained interactive report with inline CSS/JS and the full `ScanResults` embedded as a JSON island. Includes filterable issues table, severity/status badges, expandable per-check sections, and code snippets. No external resources, so the file can be emailed or hosted as-is.
 
 ## CI/CD Metadata

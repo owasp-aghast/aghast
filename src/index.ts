@@ -96,7 +96,7 @@ General options:
                              Required unless AGHAST_CONFIG_DIR is set.
   --output <path>            Output file path for results
                              (default: <repo-path>/security_checks_results.<ext>)
-  --output-format <fmt>      Output format: json, sarif, csv, html (default: json)
+  --output-format <fmt>      Output format: json, sarif, csv, html, markdown (default: json)
   --fail-on-check-failure    Exit with code 1 if any check FAILs or ERRORs
   --debug                    Shorthand for --log-level debug
   --log-level <level>        Console log level: error, warn, info, debug, trace

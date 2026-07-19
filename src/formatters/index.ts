@@ -7,6 +7,7 @@ import { JsonFormatter } from './json-formatter.js';
 import { SarifFormatter } from './sarif-formatter.js';
 import { CsvFormatter } from './csv-formatter.js';
 import { HtmlFormatter } from './html-formatter.js';
+import { MarkdownFormatter } from './markdown-formatter.js';
 
 export type { OutputFormatter } from './types.js';
 
@@ -15,6 +16,7 @@ const formatters = new Map<string, OutputFormatter>([
   ['sarif', new SarifFormatter()],
   ['csv', new CsvFormatter()],
   ['html', new HtmlFormatter()],
+  ['markdown', new MarkdownFormatter()],
 ]);
 
 /** Returns the formatter for the given ID, or throws listing available formats. */
