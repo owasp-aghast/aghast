@@ -42,6 +42,7 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--judge-concurrency <n>` | Max parallel judge calls (default: 5) |
 | `--judge-drop-false-positives` | Remove issues the judge confirms as false positives from the output |
 | `--judge-min-confidence <0-1>` | Demote `true_positive` verdicts with confidence below this threshold to `uncertain` |
+| `--retry-max-attempts <n>` | Retry transient provider failures up to `n` attempts per AI call. Default `1` (no retry); set `>1` to opt in |
 
 Run `aghast scan --help` for the full list of options.
 
@@ -96,6 +97,7 @@ the PR comment phase is non-fatal.
 | `AGHAST_JUDGE_MODEL` | Enable the LLM judge stage using this model (CLI `--judge-model` takes precedence) |
 | `AGHAST_JUDGE_PROVIDER` | Agent provider for the judge stage (CLI `--judge-provider` takes precedence) |
 | `AGHAST_MOCK_JUDGE` | Set to `true` for a default `true_positive` mock response, or set to a file path for a custom judge response fixture (for testing without a real API key). Note: when `AGHAST_MOCK_AI` is set (without `AGHAST_MOCK_JUDGE`), the judge also uses a mock provider automatically — set `AGHAST_MOCK_JUDGE` explicitly if you need a specific judge response |
+| `AGHAST_RETRY_MAX_ATTEMPTS` | Retry attempts per AI call; `>1` enables retry, which is off by default (CLI `--retry-max-attempts` takes precedence) |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
 
 ## Agent Providers

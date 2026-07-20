@@ -162,6 +162,8 @@ Judge stage options (enables a post-scan LLM re-evaluation of findings):
   --judge-drop-false-positives  Remove issues judged as false positives from output
   --judge-min-confidence <f> Demote true_positive verdicts with confidence < this
                              value to uncertain (0.0–1.0)
+  --retry-max-attempts <n>   Retry transient provider failures up to n attempts
+                             per AI call (default: 1, i.e. no retry)
 
 Environment variables:
   ANTHROPIC_API_KEY           API key for Claude. If unset, AI-based checks fall
@@ -185,6 +187,8 @@ Environment variables:
   GH_TOKEN / GITHUB_TOKEN     Auth for the gh CLI when posting PR comments
   AGHAST_JUDGE_MODEL          Judge model (presence enables the stage; CLI --judge-model takes precedence)
   AGHAST_JUDGE_PROVIDER       Judge provider (CLI --judge-provider takes precedence)
+  AGHAST_RETRY_MAX_ATTEMPTS   Retry attempts per AI call; >1 enables retry
+                              (CLI --retry-max-attempts takes precedence)
   AGHAST_MOCK_JUDGE           Enables mock judge provider. Set to "true" for default
                               {"verdict":"true_positive","confidence":1.0,"rationale":"mock"},
                               or set to a file path for a custom fixture
@@ -223,6 +227,7 @@ function parseArgs(args: string[]): {
   judgeConcurrency?: number;
   judgeDropFalsePositives?: boolean;
   judgeMinConfidence?: number;
+  retryMaxAttempts?: number;
 } {
   if (args.length < 1 || args.includes('--help') || args.includes('-h')) {
     console.log(SCAN_HELP);
@@ -259,6 +264,7 @@ function parseArgs(args: string[]): {
   let judgeConcurrency: number | undefined;
   const judgeDropFalsePositives = args.includes('--judge-drop-false-positives');
   let judgeMinConfidence: number | undefined;
+  let retryMaxAttempts: number | undefined;
 
   for (let i = startIdx; i < args.length; i++) {
     switch (args[i]) {
@@ -495,6 +501,21 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
+      case '--retry-max-attempts': {
+        const raw = args[i + 1];
+        if (!raw) {
+          console.error(formatError(ERROR_CODES.E1001, '--retry-max-attempts requires a number argument'));
+          process.exit(1);
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) {
+          console.error(formatError(ERROR_CODES.E1001, `--retry-max-attempts must be an integer >= 1 (got "${raw}")`));
+          process.exit(1);
+        }
+        retryMaxAttempts = n;
+        i++;
+        break;
+      }
       // Boolean flags: their values are read via args.includes() above, but each
       // still needs a case here — without one it reaches `default` and is
       // rejected as an unknown option.
@@ -523,6 +544,7 @@ function parseArgs(args: string[]): {
     judgeModel, judgeProvider, judgeConcurrency,
     judgeDropFalsePositives: judgeDropFalsePositives || undefined,
     judgeMinConfidence,
+    retryMaxAttempts,
   };
 }
 
@@ -975,6 +997,33 @@ export async function runScan(args: string[]): Promise<void> {
     logProgress(TAG, `Judge stage enabled: model=${resolvedJudgeModel}, provider=${judgeOptions.providerName}`);
   }
 
+  // Retry is opt-in. Precedence matches every other setting:
+  // CLI --retry-max-attempts > AGHAST_RETRY_MAX_ATTEMPTS > runtime config.
+  // When none is supplied this stays undefined and the scan runner's default
+  // (one attempt, no backoff, no circuit breaker) applies.
+  let resolvedRetry = runtimeConfig.retry;
+  const envRetryAttempts = process.env.AGHAST_RETRY_MAX_ATTEMPTS;
+  let retryAttemptsOverride: number | undefined = parsed.retryMaxAttempts;
+  if (retryAttemptsOverride === undefined && envRetryAttempts !== undefined) {
+    const n = Number(envRetryAttempts);
+    if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) {
+      console.error(
+        formatError(
+          ERROR_CODES.E1001,
+          `AGHAST_RETRY_MAX_ATTEMPTS must be an integer >= 1 (got "${envRetryAttempts}")`,
+        ),
+      );
+      process.exit(1);
+    }
+    retryAttemptsOverride = n;
+  }
+  if (retryAttemptsOverride !== undefined) {
+    resolvedRetry = { ...resolvedRetry, maxAttempts: retryAttemptsOverride };
+  }
+  if (resolvedRetry?.maxAttempts !== undefined && resolvedRetry.maxAttempts > 1) {
+    logProgress(TAG, `Retry enabled: up to ${resolvedRetry.maxAttempts} attempts per AI call`);
+  }
+
   try {
     const scanOptions: MultiScanOptions = {
       repositoryPath: effectiveRepoPath,
@@ -995,8 +1044,10 @@ export async function runScan(args: string[]): Promise<void> {
       // fall back to the env var for providers without the concept (e.g. mock).
       isLocalClaude: provider?.isLocalMode?.() ?? (process.env.AGHAST_LOCAL_CLAUDE === 'true'),
       judge: judgeOptions,
-      // Undefined when absent, which leaves the scan runner on its defaults.
-      retry: runtimeConfig.retry,
+      // Undefined when absent, which leaves the scan runner on its defaults —
+      // and the default is retry OFF, so a scan with no retry configuration
+      // anywhere fails fast exactly as it did before retry existed.
+      retry: resolvedRetry,
     };
     const outcome = await runMultiScanWithCost(scanOptions);
     const results = outcome.results;

@@ -48,7 +48,7 @@ import type { ScanRecord } from './scan-history.js';
 import { collectCIMetadata } from './ci-metadata.js';
 import { type ScanCostTracker, createCostTracker, recordUsage, preflightBudget } from './cost-tracker.js';
 import { type AbortHandle, mapWithConcurrency } from './concurrency.js';
-import { withRetry, defaultIsRetryable, CircuitBreaker, DEFAULT_RETRY, type RetryOptions } from './retry.js';
+import { withRetry, defaultIsRetryable, CircuitBreaker, DEFAULT_RETRY, isRetryEnabled, type RetryOptions } from './retry.js';
 import { type JudgeOptions, runJudge, applyJudgeResults } from './judge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1129,9 +1129,16 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
   // retrying rather than each target independently burning its own attempts
   // against a provider that is plainly unwell.
   const retryOptions: RetryOptions = { ...DEFAULT_RETRY, ...options.retry };
-  const scanBreaker = new CircuitBreaker({
-    threshold: options.retry?.circuitBreakerThreshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
-  });
+  // The breaker exists to stop a scan hammering a provider that is plainly
+  // unwell *across retries*. With retry off there are no retries to stop, and
+  // an open breaker would replace the real provider error with CircuitOpenError
+  // — a behaviour change in its own right. So it is created only when the
+  // caller has opted into retry.
+  const scanBreaker = isRetryEnabled(retryOptions.maxAttempts)
+    ? new CircuitBreaker({
+        threshold: options.retry?.circuitBreakerThreshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
+      })
+    : undefined;
 
   const scanTimer = createTimer();
   const scanId = generateScanId();

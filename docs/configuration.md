@@ -315,14 +315,34 @@ Diff filtering uses OpenAnt for the call graph (depth-1 mode). If OpenAnt isn't 
 
 ### Retry and resilience
 
-Transient provider failures — a dropped stream, a 5xx, a network reset — are retried with exponential backoff and jitter rather than failing the check outright. Defaults are three attempts starting at a one second delay.
+**Retry is opt-in and off by default.** Without it, a transient provider failure — a dropped stream, a 5xx, a network reset — fails its check as it always has. Enable it, and those failures are retried with exponential backoff and jitter instead:
+
+```bash
+# CLI flag
+aghast scan ./repo --config-dir ./checks --retry-max-attempts 3
+
+# or environment variable
+AGHAST_RETRY_MAX_ATTEMPTS=3 aghast scan ./repo --config-dir ./checks
+```
+
+```jsonc
+// or runtime-config.json
+{ "retry": { "maxAttempts": 3 } }
+```
+
+Precedence is the usual chain: `--retry-max-attempts` > `AGHAST_RETRY_MAX_ATTEMPTS` > `retry.maxAttempts` in runtime config. `maxAttempts` counts the first attempt, so `1` means no retry and `3` means the initial call plus two retries. Three is a reasonable starting point for unattended CI runs, where a transient failure would otherwise mean re-running the whole scan.
 
 Errors that have already been classified as terminal are **never** retried, regardless of these settings:
 
 - `FatalProviderError` — quota exhaustion and authentication failures. The provider raises this for messages like *"you've hit your limit"*; a subscription limit resets on a schedule, not in seconds, so retrying only burns the remaining attempts.
 - Budget aborts — the scan has spent what it was allowed to spend.
 
-A single circuit breaker is shared across the whole scan. Once `retry.circuitBreakerThreshold` consecutive transient failures have occurred anywhere, retrying stops for the remainder of the run: if the provider is failing repeatedly then every remaining target will fail too, and retrying each one wastes both wall-clock time and quota.
+A single circuit breaker is shared across the whole scan **when retry is enabled**. Once `retry.circuitBreakerThreshold` consecutive transient failures have occurred anywhere, retrying stops for the remainder of the run: if the provider is failing repeatedly then every remaining target will fail too, and retrying each one wastes both wall-clock time and quota. With retry off there are no retries to stop, so no breaker is created and every failure surfaces as its original error.
+
+Two caveats worth knowing before enabling it:
+
+- The per-target timeout is classified as retryable, so `maxAttempts: 3` can take up to roughly three times as long to give up on a genuinely hung provider.
+- The [judge stage](scanning.md#llm-judge-stage) makes its own AI calls that are **not** covered by retry.
 
 ## Check Instructions (`<id>.md`)
 
@@ -446,7 +466,7 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `budget.perPeriod.maxCostUsd`   | `number`   | (none) | Abort when total cost across the period (history + current scan) exceeds this USD value |
 | `budget.thresholds.warnAt`      | `number`   | `0.8` | Fraction of a limit at which a warning is logged (0.0–1.0) |
 | `budget.thresholds.abortAt`     | `number`   | `1.0` | Fraction of a limit at which the scan aborts (0.0–1.0) |
-| `retry.maxAttempts`             | `number`   | `3` | Total attempts per AI call, including the first. Applies to transient provider failures only |
+| `retry.maxAttempts`             | `number`   | `1` | Total attempts per AI call, including the first. `1` disables retry; set `>1` to opt in. Applies to transient provider failures only |
 | `retry.baseDelayMs`             | `number`   | `1000` | Initial backoff before jitter |
 | `retry.maxDelayMs`              | `number`   | `16000` | Cap on backoff before jitter |
 | `retry.circuitBreakerThreshold` | `number`   | `5` | Consecutive transient failures across the whole scan before retrying stops. Shared by every check and target |

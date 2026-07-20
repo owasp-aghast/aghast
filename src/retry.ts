@@ -41,12 +41,31 @@ export interface RetryOptions {
   label?: string;
 }
 
-/** Default retry options used when callers don't supply a value. */
+/**
+ * Default retry options used when callers don't supply a value.
+ *
+ * `maxAttempts: 1` means retry is OFF unless explicitly configured — one
+ * attempt, no backoff, the original error rethrown untouched. This keeps a
+ * plain `aghast scan` behaving exactly as it did before retry existed.
+ * Opt in with `--retry-max-attempts`, `AGHAST_RETRY_MAX_ATTEMPTS`, or
+ * `retry.maxAttempts` in runtime config.
+ *
+ * The backoff values below are the defaults used *once retry is enabled*;
+ * they have no effect at `maxAttempts: 1`.
+ */
 export const DEFAULT_RETRY: Required<Pick<RetryOptions, 'maxAttempts' | 'baseDelayMs' | 'maxDelayMs'>> = {
-  maxAttempts: 3,
+  maxAttempts: 1,
   baseDelayMs: 1000,
   maxDelayMs: 16000,
 };
+
+/** Attempts at or below this mean the caller has not opted into retry. */
+export const RETRY_DISABLED_ATTEMPTS = 1;
+
+/** True when the resolved options leave retry switched off. */
+export function isRetryEnabled(maxAttempts: number): boolean {
+  return maxAttempts > RETRY_DISABLED_ATTEMPTS;
+}
 
 /**
  * Default retryable-error classifier.

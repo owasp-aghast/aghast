@@ -147,6 +147,9 @@ export async function runCLI(
     AGHAST_LOG_LEVEL: '',
     AGHAST_LOG_FILE: '',
     AGHAST_LOG_TYPE: '',
+    // Retry is opt-in; scrub the opt-in var so a developer who has it exported
+    // cannot mask the default-off behaviour the suite asserts.
+    AGHAST_RETRY_MAX_ATTEMPTS: undefined,
     NO_COLOR: '1',
     // Scrub CI/CD detection vars so the suite is hermetic when the test
     // runner itself happens to be inside CI (spec E.4 metadata is opt-in
