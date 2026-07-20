@@ -25,7 +25,7 @@ Seven core components orchestrated by the Security Scanner:
 6. **Diff Filter** — Optional post-discovery transformation (`src/diff-filter.ts`) that narrows any SARIF-producing discovery's output to findings touching a git diff, using OpenAnt's call graph for flow-adjacency. Activated automatically when a diff source is provided; individual checks can opt out via `checkTarget.diffFilter: false`.
 7. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
 
-**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), run discovery (Semgrep, Opengrep, OpenAnt, or SARIF for targeted/static checks), optionally apply diff filter, AI analyzes (or map findings directly for static checks), results parsed → aggregate → JSON report → exit code.
+**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), run discovery (Semgrep, Opengrep, OpenAnt, SARIF, glob or script for targeted/static checks), optionally apply diff filter, AI analyzes (or map findings directly for static checks), results parsed → aggregate → (optional) LLM judge stage re-evaluates all issues → JSON report → exit code.
 
 **Check types**: Three check types with pluggable discovery:
 - `repository` — AI analyzes the whole repo (no discovery needed)
@@ -113,6 +113,9 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_MOCK_SARIF` — Path to SARIF file for mock Semgrep/Opengrep output (test/dev only)
 - `AGHAST_OPENANT_DATASET` — Path to a pre-generated OpenAnt dataset JSON file (skips invoking `openant parse`)
 - `AGHAST_DIFF_REF` — Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence)
+- `AGHAST_JUDGE_MODEL` — Enable the LLM judge stage using this model (CLI `--judge-model` takes precedence)
+- `AGHAST_JUDGE_PROVIDER` — Agent provider for the judge stage (CLI `--judge-provider` takes precedence)
+- `AGHAST_MOCK_JUDGE` — Enables mock judge provider. Set to `true` for default `true_positive` response, or set to a file path
 - `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
 - `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
 - `AGHAST_MOCK_LOCAL_LOGIN` — Test hook for the Claude Code provider's local-login probe: `true` reports a logged-in session, `false` reports not-logged-in, both without spawning the agent SDK (keeps CLI auth tests hermetic)
@@ -144,6 +147,29 @@ listed instead of its contents.
 **Core scan pipeline**
 
 - `src/scan-runner.ts` — Security Scanner orchestrator (`runMultiScan` for config-based multi-check; `executeTargetedCheck` for discovery-based checks with concurrent target analysis via `mapWithConcurrency`)
+- `src/cli.ts` — Unified CLI entry point with subcommand router (`scan`, `new-check`, `--help`, `--version`)
+- `src/index.ts` — Scan CLI entry point and argument parsing (exports `runScan(args)`); validates config dir structure
+- `src/scan-runner.ts` — Security Scanner orchestrator (`runMultiScan` for config-based multi-check; `executeTargetedCheck` for discovery-based checks with concurrent target analysis via `mapWithConcurrency`; wires in the judge stage after checks complete)
+- `src/judge.ts` — LLM judge stage: `runJudge` (re-evaluates all issues post-scan), `applyJudgeResults` (status recomputation, drop FPs, escalate uncertain → FLAG), `parseJudgeResponse` (parses verdict JSON)
+- `src/concurrency.ts` — Shared concurrency utility: `mapWithConcurrency` (concurrent mapping with optional abort handle), `AbortHandle`
+- `src/cost-tracker.ts` — Shared cost tracking: `ScanCostTracker`, `createCostTracker`, `recordUsage`, `preflightBudget`
+- `src/discovery.ts` — Pluggable discovery abstraction: `DiscoveryProvider` interface, `DiscoveryRegistry`, and discovery orchestration
+- `src/discoveries/semgrep-discovery.ts` — Semgrep discovery provider (runs Semgrep rules, parses SARIF output into targets)
+- `src/discoveries/openant-discovery.ts` — OpenAnt discovery provider (runs OpenAnt to extract code units with call graph context)
+- `src/discoveries/sarif-discovery.ts` — SARIF discovery provider (reads external SARIF files for AI validation)
+- `src/diff-filter.ts` — Diff filter (`applyDiffFilter`); called post-discovery whenever a diff source is available and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets to diff scope using OpenAnt call graph (depth-1), or falls back to file+line overlap (depth-0) when OpenAnt is unavailable
+- `src/diff-parser.ts` — Unified diff parsing (`parseDiff`, `getDiff`, `loadDiffFromFile`)
+- `src/diff-unit-matcher.ts` — Unit-to-diff matching with call graph traversal (`findTouchedUnits`, `filterFindingsByScope`)
+- `src/claude-code-provider.ts` — Claude Code agent provider implementation using `@anthropic-ai/claude-agent-sdk`
+- `src/opencode-provider.ts` — OpenCode agent provider implementation using `@opencode-ai/sdk` (supports 75+ LLM providers)
+- `src/provider-utils.ts` — Shared provider utilities (OUTPUT_SCHEMA for structured output)
+- `src/prompt-template.ts` — Prompt builder (prepends generic instructions to check markdown)
+- `src/snippet-extractor.ts` — Code snippet extractor (extracts lines from source files for issue enrichment)
+- `src/sarif-parser.ts` — SARIF 2.1.0 parser (`parseSARIF`, `deduplicateTargets`, `limitTargets`)
+- `src/semgrep-runner.ts` — Semgrep execution with mock support (`runSemgrep`, `buildSemgrepArgs`)
+- `src/openant-runner.ts` — OpenAnt execution with mock support (runs OpenAnt CLI, parses output)
+- `src/openant-loader.ts` — OpenAnt dataset loading, unit filtering, and prompt formatting. Uses base datasets (`dataset.json`) not enhanced — the AI forms its own security judgment
+- `src/check-types.ts` — Check type descriptor system; each check type (`repository`, `targeted`, `static`) declares its characteristics (needsAI, needsDiscovery, needsInstructions, etc.) in one place
 - `src/check-library.ts` — Check Library: two-layer config loading (`loadCheckRegistry`, `loadCheckDefinition`, `discoverCheckFolders`, `resolveChecks`), validation, repository matching, markdown parsing, path filtering
 - `src/repo-scan.ts` — Cached repository snapshot (file paths, extensions, user tags) used to evaluate `matchCriteria` rules without re-walking the tree per check. Bounded: fixed ignore list plus a depth cap, since it gates which checks run rather than enumerating the repo
 - `src/check-types.ts` — Check type descriptor system; each type (`repository`, `targeted`, `static`) declares its characteristics (needsAI, needsDiscovery, needsInstructions, etc.) in one place

@@ -60,6 +60,11 @@ interface ParsedFlags {
   logType?: string;
   genericPrompt?: string;
   failOnCheckFailure?: string;
+  judgeModel?: string;
+  judgeProvider?: string;
+  judgeConcurrency?: string;
+  judgeDropFalsePositives?: string;
+  judgeMinConfidence?: string;
   nonInteractive?: boolean;
   clear?: string[];
 }
@@ -76,6 +81,11 @@ const FLAG_MAP: Record<string, keyof Omit<ParsedFlags, 'nonInteractive' | 'clear
   '--log-type': 'logType',
   '--generic-prompt': 'genericPrompt',
   '--fail-on-check-failure': 'failOnCheckFailure',
+  '--judge-model': 'judgeModel',
+  '--judge-provider': 'judgeProvider',
+  '--judge-concurrency': 'judgeConcurrency',
+  '--judge-drop-false-positives': 'judgeDropFalsePositives',
+  '--judge-min-confidence': 'judgeMinConfidence',
 };
 
 const KNOWN_FLAGS = new Set<string>([...Object.keys(FLAG_MAP), '--non-interactive', '--clear', '--help', '-h']);
@@ -150,6 +160,11 @@ Field flags (any value provided here skips its prompt; closed lists are validate
   --log-type <type>             Log file handler type (default: file)
   --generic-prompt <file>       Generic prompt template filename
   --fail-on-check-failure <b>   true | false
+  --judge-model <model>         Enable the LLM judge stage using this model
+  --judge-provider <name>       Agent provider for the judge stage (defaults to scan provider)
+  --judge-concurrency <n>       Max parallel judge calls (default: 5)
+  --judge-drop-false-positives <b>  true | false
+  --judge-min-confidence <0-1>  Confidence threshold; true_positive verdicts below this become uncertain
 
 Mode flags:
   --non-interactive             Don't prompt — use existing values / defaults / flags only
@@ -175,6 +190,11 @@ const CLEARABLE_FIELDS = new Set([
   'logType',
   'genericPrompt',
   'failOnCheckFailure',
+  'judgeModel',
+  'judgeProvider',
+  'judgeConcurrency',
+  'judgeDropFalsePositives',
+  'judgeMinConfidence',
 ]);
 
 async function fileExists(path: string): Promise<boolean> {
@@ -196,6 +216,11 @@ function configToFlatDefaults(config: RuntimeConfig): {
   logType?: string;
   genericPrompt?: string;
   failOnCheckFailure?: boolean;
+  judgeModel?: string;
+  judgeProvider?: string;
+  judgeConcurrency?: number;
+  judgeDropFalsePositives?: boolean;
+  judgeMinConfidence?: number;
 } {
   return {
     provider: config.agentProvider?.name,
@@ -207,6 +232,11 @@ function configToFlatDefaults(config: RuntimeConfig): {
     logType: config.logging?.logType,
     genericPrompt: config.genericPrompt,
     failOnCheckFailure: config.failOnCheckFailure,
+    judgeModel: config.judge?.model,
+    judgeProvider: config.judge?.provider,
+    judgeConcurrency: config.judge?.concurrency,
+    judgeDropFalsePositives: config.judge?.dropFalsePositives,
+    judgeMinConfidence: config.judge?.minConfidence,
   };
 }
 
@@ -220,6 +250,11 @@ interface BuiltValues {
   logType?: string;
   genericPrompt?: string;
   failOnCheckFailure?: boolean;
+  judgeModel?: string;
+  judgeProvider?: string;
+  judgeConcurrency?: number;
+  judgeDropFalsePositives?: boolean;
+  judgeMinConfidence?: number;
 }
 
 function buildConfig(values: BuiltValues): RuntimeConfig {
@@ -242,6 +277,20 @@ function buildConfig(values: BuiltValues): RuntimeConfig {
   }
   if (values.genericPrompt !== undefined) config.genericPrompt = values.genericPrompt;
   if (values.failOnCheckFailure !== undefined) config.failOnCheckFailure = values.failOnCheckFailure;
+  if (
+    values.judgeModel !== undefined ||
+    values.judgeProvider !== undefined ||
+    values.judgeConcurrency !== undefined ||
+    values.judgeDropFalsePositives !== undefined ||
+    values.judgeMinConfidence !== undefined
+  ) {
+    config.judge = {};
+    if (values.judgeModel !== undefined) config.judge.model = values.judgeModel;
+    if (values.judgeProvider !== undefined) config.judge.provider = values.judgeProvider;
+    if (values.judgeConcurrency !== undefined) config.judge.concurrency = values.judgeConcurrency;
+    if (values.judgeDropFalsePositives !== undefined) config.judge.dropFalsePositives = values.judgeDropFalsePositives;
+    if (values.judgeMinConfidence !== undefined) config.judge.minConfidence = values.judgeMinConfidence;
+  }
   return config;
 }
 
@@ -491,6 +540,31 @@ export async function runBuildConfig(args: string[]): Promise<void> {
     }
     result.failOnCheckFailure = flags.failOnCheckFailure === 'true';
   }
+  if (flags.judgeModel !== undefined) result.judgeModel = flags.judgeModel;
+  if (flags.judgeProvider !== undefined) result.judgeProvider = flags.judgeProvider;
+  if (flags.judgeConcurrency !== undefined) {
+    const n = parseInt(flags.judgeConcurrency, 10);
+    if (isNaN(n) || n < 1) {
+      console.error(formatError(ERROR_CODES.E1001, `Invalid --judge-concurrency "${flags.judgeConcurrency}". Must be a positive integer.`));
+      process.exit(1);
+    }
+    result.judgeConcurrency = n;
+  }
+  if (flags.judgeDropFalsePositives !== undefined) {
+    if (!VALID_BOOLS.includes(flags.judgeDropFalsePositives as 'true' | 'false')) {
+      console.error(formatError(ERROR_CODES.E1001, `Invalid --judge-drop-false-positives "${flags.judgeDropFalsePositives}". Must be true or false.`));
+      process.exit(1);
+    }
+    result.judgeDropFalsePositives = flags.judgeDropFalsePositives === 'true';
+  }
+  if (flags.judgeMinConfidence !== undefined) {
+    const n = parseFloat(flags.judgeMinConfidence);
+    if (isNaN(n) || n < 0 || n > 1) {
+      console.error(formatError(ERROR_CODES.E1001, `Invalid --judge-min-confidence "${flags.judgeMinConfidence}". Must be a number between 0 and 1.`));
+      process.exit(1);
+    }
+    result.judgeMinConfidence = n;
+  }
   // Model is applied last, after we have a resolved provider, so we can validate against listModels
   const pendingModelFlag = flags.model;
 
@@ -563,6 +637,34 @@ export async function runBuildConfig(args: string[]): Promise<void> {
       }
       if (flags.failOnCheckFailure === undefined) {
         result.failOnCheckFailure = await helpers.askBool('Fail on check failure', result.failOnCheckFailure, SCAN_DEFAULTS.failOnCheckFailure);
+      }
+      if (flags.judgeModel === undefined) {
+        result.judgeModel = await helpers.ask('Judge model (leave unset to disable judge stage)', result.judgeModel);
+      }
+      if (flags.judgeProvider === undefined) {
+        const providers = getProviderNames();
+        result.judgeProvider = await helpers.askChoice('Judge provider (defaults to scan provider)', providers, result.judgeProvider);
+      }
+      if (flags.judgeConcurrency === undefined) {
+        const raw = await helpers.ask('Judge concurrency', result.judgeConcurrency !== undefined ? String(result.judgeConcurrency) : undefined, '5');
+        if (raw !== undefined) {
+          const n = parseInt(raw, 10);
+          if (!isNaN(n) && n >= 1) result.judgeConcurrency = n;
+        } else {
+          result.judgeConcurrency = undefined;
+        }
+      }
+      if (flags.judgeDropFalsePositives === undefined) {
+        result.judgeDropFalsePositives = await helpers.askBool('Drop false positives confirmed by judge', result.judgeDropFalsePositives);
+      }
+      if (flags.judgeMinConfidence === undefined) {
+        const raw = await helpers.ask('Judge min confidence (0-1, demotes TP below threshold to uncertain)', result.judgeMinConfidence !== undefined ? String(result.judgeMinConfidence) : undefined);
+        if (raw !== undefined) {
+          const n = parseFloat(raw);
+          if (!isNaN(n) && n >= 0 && n <= 1) result.judgeMinConfidence = n;
+        } else {
+          result.judgeMinConfidence = undefined;
+        }
       }
     } catch (err) {
       // Includes "No valid choice for X after N attempts" — surface as a usage error.

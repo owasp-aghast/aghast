@@ -273,6 +273,7 @@ Diff filtering works identically for `openant` discovery: the filter narrows the
 | `checkTarget.openant.minConfidence` | `number`     | No       | Minimum classification confidence (0-1) |
 | `applicablePaths`  | `string[]`                    | No       | Glob patterns to include (e.g. `["src/**/*.ts"]`) |
 | `excludedPaths`    | `string[]`                    | No       | Glob patterns to exclude (e.g. `["tests/**"]`) |
+| `judge`            | `boolean`                     | No       | Set to `false` to exclude this check's issues from the LLM judge stage. Default (omitted or `true`): issues are judged when the judge stage is enabled |
 
 ## Check Types
 
@@ -387,6 +388,13 @@ An optional `runtime-config.json` file in the config directory (or specified via
     "models": {
       "my-custom-model": { "inputPerMillion": 2.0, "outputPerMillion": 8.0 }
     }
+  },
+  "judge": {
+    "model": "claude-opus-4-7",
+    "provider": "claude-code",
+    "concurrency": 5,
+    "dropFalsePositives": true,
+    "minConfidence": 0.7
   }
 }
 ```
@@ -429,6 +437,12 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `budget.thresholds.abortAt`     | `number`   | `1.0` | Fraction of a limit at which the scan aborts (0.0–1.0) |
 | `pricing.currency`              | `string`   | `USD` | Currency for cost estimates |
 | `pricing.models`                | `object`   | (built-in) | Per-model overrides: `{ "<model>": { "inputPerMillion": <usd>, "outputPerMillion": <usd> } }`. Merges with built-in defaults |
+
+| `judge.model`               | `string`   | (none, stage disabled) | Enable the LLM judge stage using this model. The judge re-evaluates every finding post-scan and annotates it with a verdict, confidence, and rationale. CLI `--judge-model` takes precedence |
+| `judge.provider`            | `string`   | (scan provider) | Agent provider for the judge stage. Defaults to the scan provider if omitted |
+| `judge.concurrency`         | `number`   | `5` | Max parallel judge calls per scan |
+| `judge.dropFalsePositives`  | `boolean`  | `false` | Remove issues confirmed as false positives from the output. If a check loses all its issues, it becomes PASS |
+| `judge.minConfidence`       | `number`   | (none) | Confidence threshold (0–1). `true_positive` verdicts below this value are demoted to `uncertain` |
 
 **Precedence**: CLI flags > environment variables > runtime config > built-in defaults.
 

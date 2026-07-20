@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-sql-injection",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

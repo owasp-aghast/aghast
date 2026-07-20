@@ -76,6 +76,8 @@ export interface CheckDefinition {
   checkTarget?: CheckTargetDefinition;
   applicablePaths?: string[];
   excludedPaths?: string[];
+  /** Set to false to exclude this check's issues from the judge stage. */
+  judge?: boolean;
 }
 
 // --- A.1 Security Check (merged from Layer 1 + Layer 2) ---
@@ -100,6 +102,8 @@ export interface SecurityCheck {
   matchCriteria?: MatchCriteria;
   /** Execution order — lower runs first; unset sorts to end (stable). */
   priority?: number;
+  /** Set to false to exclude this check's issues from the judge stage. */
+  judge?: boolean;
 }
 
 // --- A.2 Check Target Definition ---
@@ -180,6 +184,17 @@ export interface DataFlowStep {
 
 // --- A.3 Security Issue ---
 
+export type JudgeVerdictValue = 'true_positive' | 'false_positive' | 'uncertain';
+
+export interface JudgeVerdict {
+  verdict: JudgeVerdictValue;
+  confidence: number; // 0..1
+  rationale: string;
+  model: string;
+  provider: string;
+  tokenUsage?: TokenUsage;
+}
+
 export interface SecurityIssue {
   checkId: string;
   checkName: string;
@@ -192,6 +207,10 @@ export interface SecurityIssue {
   confidence?: string;
   recommendation?: string;
   dataFlow?: DataFlowStep[];
+  /** Populated by the judge stage when enabled. */
+  judge?: JudgeVerdict;
+  /** Why the issue ended up in FLAG. Only set when the check status is FLAG. */
+  flagSource?: 'check' | 'judge';
 }
 
 // --- A.3b Check Response ---
@@ -385,6 +404,12 @@ export interface ScanSummary {
   flaggedChecks: number;
   errorChecks: number;
   totalIssues: number;
+  /** Set when the judge stage ran. */
+  judgedIssues?: number;
+  falsePositives?: number;
+  uncertainJudgements?: number;
+  flaggedByCheck?: number;
+  flaggedByJudge?: number;
 }
 
 // --- Runtime Configuration (spec Section 8.1) ---
@@ -407,6 +432,16 @@ export interface RuntimeBudgetConfig {
 export interface RuntimePricingConfig {
   currency?: string;
   models?: Record<string, { inputPerMillion: number; outputPerMillion: number; cacheReadPerMillion?: number; cacheWritePerMillion?: number }>;
+}
+
+export interface RuntimeJudgeConfig {
+  /** Provider name for the judge stage. Defaults to the scan provider when absent. */
+  provider?: string;
+  /** Model for the judge stage. Presence enables the judge stage. */
+  model?: string;
+  concurrency?: number;
+  dropFalsePositives?: boolean;
+  minConfidence?: number;
 }
 
 export interface RuntimeConfig {
@@ -436,6 +471,8 @@ export interface RuntimeConfig {
   diffRef?: string;
   budget?: RuntimeBudgetConfig;
   pricing?: RuntimePricingConfig;
+  /** LLM judge stage configuration. Setting judge.model enables the stage. */
+  judge?: RuntimeJudgeConfig;
 }
 
 // --- A.6 Aggregated Report ---

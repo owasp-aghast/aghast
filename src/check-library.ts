@@ -208,6 +208,9 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
   if (obj.model !== undefined && typeof obj.model !== 'string') {
     throw new Error(`Check definition "${defPath}": "model" must be a string`);
   }
+  if (obj.judge !== undefined && typeof obj.judge !== 'boolean') {
+    throw new Error(`Check definition "${defPath}": "judge" must be a boolean`);
+  }
   if (obj.applicablePaths !== undefined && !Array.isArray(obj.applicablePaths)) {
     throw new Error(`Check definition "${defPath}": "applicablePaths" must be an array`);
   }
@@ -448,6 +451,7 @@ export async function resolveChecks(
     if (def.severity) merged.severity = def.severity;
     if (def.confidence) merged.confidence = def.confidence;
     if (def.model) merged.model = def.model;
+    if (def.judge !== undefined) merged.judge = def.judge;
     if (def.applicablePaths) merged.applicablePaths = def.applicablePaths;
     if (def.excludedPaths) merged.excludedPaths = def.excludedPaths;
 

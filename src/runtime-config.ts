@@ -200,5 +200,31 @@ export async function loadRuntimeConfig(configDir?: string, explicitPath?: strin
     }
   }
 
+  if (obj.judge !== undefined) {
+    if (typeof obj.judge !== 'object' || obj.judge === null || Array.isArray(obj.judge)) {
+      throw new Error(`Runtime config "${pathToLoad}": "judge" must be an object`);
+    }
+    const j = obj.judge as Record<string, unknown>;
+    if (j.provider !== undefined && typeof j.provider !== 'string') {
+      throw new Error(`Runtime config "${pathToLoad}": "judge.provider" must be a string`);
+    }
+    if (j.model !== undefined && typeof j.model !== 'string') {
+      throw new Error(`Runtime config "${pathToLoad}": "judge.model" must be a string`);
+    }
+    if (j.concurrency !== undefined) {
+      if (typeof j.concurrency !== 'number' || !Number.isInteger(j.concurrency) || j.concurrency <= 0) {
+        throw new Error(`Runtime config "${pathToLoad}": "judge.concurrency" must be a positive integer`);
+      }
+    }
+    if (j.dropFalsePositives !== undefined && typeof j.dropFalsePositives !== 'boolean') {
+      throw new Error(`Runtime config "${pathToLoad}": "judge.dropFalsePositives" must be a boolean`);
+    }
+    if (j.minConfidence !== undefined) {
+      if (typeof j.minConfidence !== 'number' || j.minConfidence < 0 || j.minConfidence > 1) {
+        throw new Error(`Runtime config "${pathToLoad}": "judge.minConfidence" must be a number between 0 and 1`);
+      }
+    }
+  }
+
   return parsed as RuntimeConfig;
 }

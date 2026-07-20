@@ -6,7 +6,8 @@
 import 'dotenv/config';
 import { readFile, writeFile, stat, mkdir, readdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
-import { runMultiScanWithCost } from './scan-runner.js';
+import { runMultiScanWithCost, type MultiScanOptions } from './scan-runner.js';
+import type { JudgeOptions } from './judge.js';
 import { loadDefaultPricing, mergePricing, formatCostSourceLabel } from './cost-calculator.js';
 import type { BudgetLimits } from './budget.js';
 import { saveScanRecord, queryScanHistory, type ScanRecord } from './scan-history.js';
@@ -24,7 +25,7 @@ import {
 import { clearRepoSnapshotCache } from './repo-scan.js';
 import { analyzeRepository } from './repository-analyzer.js';
 import { loadRuntimeConfig } from './runtime-config.js';
-import { logProgress, logDebug, setLogLevel, createTimer, isValidLogLevel, initFileHandler, closeAllHandlers, getAvailableLogTypes } from './logging.js';
+import { logProgress, logDebug, logWarn, setLogLevel, createTimer, isValidLogLevel, initFileHandler, closeAllHandlers, getAvailableLogTypes } from './logging.js';
 import type { LogLevel } from './logging.js';
 import { MOCK_MODEL_NAME, DEFAULT_MODEL, type AgentProvider } from './types.js';
 import { getFormatter } from './formatters/index.js';
@@ -41,6 +42,23 @@ import { postPRComments } from './result-handlers/pr-comment-handler.js';
 import { createRequire } from 'node:module';
 
 const TAG = 'aghast';
+
+async function createMockJudgeProvider(modelOverride?: string): Promise<AgentProvider> {
+  // AGHAST_MOCK_JUDGE='true' → default TP response; AGHAST_MOCK_JUDGE=<path> → read from that file
+  const mockJudgeValue = process.env.AGHAST_MOCK_JUDGE;
+  let rawResponse = '{"verdict":"true_positive","confidence":1.0,"rationale":"mock"}';
+  if (mockJudgeValue && mockJudgeValue !== 'true') {
+    try {
+      rawResponse = await readFile(resolve(mockJudgeValue), 'utf-8');
+    } catch (err) {
+      throw new Error(formatError(ERROR_CODES.E8001, `path: ${mockJudgeValue}`), { cause: err });
+    }
+  }
+  const provider = new MockAgentProvider({ rawResponse });
+  await provider.initialize({});
+  provider.setModel?.(modelOverride ?? MOCK_MODEL_NAME);
+  return provider;
+}
 
 async function createMockProvider(): Promise<AgentProvider> {
   // AGHAST_MOCK_AI='true' → default empty response; AGHAST_MOCK_AI=<path> → read from that file
@@ -129,6 +147,14 @@ PR comment options (post findings as inline GitHub PR review comments):
   --base-sha <sha>           Base commit SHA (default: $GITHUB_BASE_SHA)
   --head-sha <sha>           Head commit SHA
                              (default: $GITHUB_HEAD_SHA / $GITHUB_SHA)
+Judge stage options (enables a post-scan LLM re-evaluation of findings):
+  --judge-model <model>      Enable the judge stage using this model. Required
+                             to activate the stage (no separate --judge flag).
+  --judge-provider <name>    Agent provider for the judge (default: scan provider)
+  --judge-concurrency <n>    Max concurrent judge calls (default: 5)
+  --judge-drop-false-positives  Remove issues judged as false positives from output
+  --judge-min-confidence <f> Demote true_positive verdicts with confidence < this
+                             value to uncertain (0.0–1.0)
 
 Environment variables:
   ANTHROPIC_API_KEY           API key for Claude. If unset, AI-based checks fall
@@ -150,6 +176,11 @@ Environment variables:
   GITHUB_HEAD_SHA             Default for --head-sha
   GITHUB_SHA                  Fallback for --head-sha (auto-set in GitHub Actions)
   GH_TOKEN / GITHUB_TOKEN     Auth for the gh CLI when posting PR comments
+  AGHAST_JUDGE_MODEL          Judge model (presence enables the stage; CLI --judge-model takes precedence)
+  AGHAST_JUDGE_PROVIDER       Judge provider (CLI --judge-provider takes precedence)
+  AGHAST_MOCK_JUDGE           Enables mock judge provider. Set to "true" for default
+                              {"verdict":"true_positive","confidence":1.0,"rationale":"mock"},
+                              or set to a file path for a custom fixture
 
 Examples:
   aghast scan ./my-repo --config-dir ./my-checks
@@ -180,6 +211,11 @@ function parseArgs(args: string[]): {
   prRepo?: string;
   baseSha?: string;
   headSha?: string;
+  judgeModel?: string;
+  judgeProvider?: string;
+  judgeConcurrency?: number;
+  judgeDropFalsePositives?: boolean;
+  judgeMinConfidence?: number;
 } {
   if (args.length < 1 || args.includes('--help') || args.includes('-h')) {
     console.log(SCAN_HELP);
@@ -211,6 +247,11 @@ function parseArgs(args: string[]): {
   let prRepo: string | undefined;
   let baseSha: string | undefined;
   let headSha: string | undefined;
+  let judgeModel: string | undefined;
+  let judgeProvider: string | undefined;
+  let judgeConcurrency: number | undefined;
+  const judgeDropFalsePositives = args.includes('--judge-drop-false-positives');
+  let judgeMinConfidence: number | undefined;
 
   for (let i = startIdx; i < args.length; i++) {
     switch (args[i]) {
@@ -399,9 +440,60 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
+      case '--judge-model': {
+        judgeModel = args[i + 1];
+        if (!judgeModel) {
+          console.error(formatError(ERROR_CODES.E1001, '--judge-model requires a model name argument'));
+          process.exit(1);
+        }
+        i++;
+        break;
+      }
+      case '--judge-provider': {
+        judgeProvider = args[i + 1];
+        if (!judgeProvider) {
+          console.error(formatError(ERROR_CODES.E1001, '--judge-provider requires a provider name argument'));
+          process.exit(1);
+        }
+        i++;
+        break;
+      }
+      case '--judge-concurrency': {
+        const raw = args[i + 1];
+        if (!raw) {
+          console.error(formatError(ERROR_CODES.E1001, '--judge-concurrency requires a number argument'));
+          process.exit(1);
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+          console.error(formatError(ERROR_CODES.E1001, `--judge-concurrency must be a positive integer (got "${raw}")`));
+          process.exit(1);
+        }
+        judgeConcurrency = n;
+        i++;
+        break;
+      }
+      case '--judge-min-confidence': {
+        const raw = args[i + 1];
+        if (!raw) {
+          console.error(formatError(ERROR_CODES.E1001, '--judge-min-confidence requires a number argument (0.0–1.0)'));
+          process.exit(1);
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+          console.error(formatError(ERROR_CODES.E1001, `--judge-min-confidence must be between 0 and 1 (got "${raw}")`));
+          process.exit(1);
+        }
+        judgeMinConfidence = n;
+        i++;
+        break;
+      }
+      // Boolean flags: their values are read via args.includes() above, but each
+      // still needs a case here — without one it reaches `default` and is
+      // rejected as an unknown option.
       case '--fail-on-check-failure':
       case '--debug':
-        // Boolean flags are handled above via includes().
+      case '--judge-drop-false-positives':
         break;
       default: {
         const arg = args[i];
@@ -421,6 +513,9 @@ function parseArgs(args: string[]): {
     diffRef, diffFile,
     budgetLimitCost, budgetLimitTokens,
     prNumber, prRepo, baseSha, headSha,
+    judgeModel, judgeProvider, judgeConcurrency,
+    judgeDropFalsePositives: judgeDropFalsePositives || undefined,
+    judgeMinConfidence,
   };
 }
 
@@ -834,8 +929,47 @@ export async function runScan(args: string[]): Promise<void> {
     }
   }
 
+  // ─── Judge stage setup ───
+  // Stage is enabled iff a judge model is resolvable from any config source.
+  // Provider defaults to the scan provider if not explicitly set (decision #8).
+  const resolvedJudgeModel = parsed.judgeModel ?? process.env.AGHAST_JUDGE_MODEL ?? runtimeConfig.judge?.model;
+  const resolvedJudgeProvider = parsed.judgeProvider ?? process.env.AGHAST_JUDGE_PROVIDER ?? runtimeConfig.judge?.provider;
+  const resolvedJudgeConcurrency = parsed.judgeConcurrency ?? runtimeConfig.judge?.concurrency;
+  const resolvedJudgeDropFP = parsed.judgeDropFalsePositives ?? runtimeConfig.judge?.dropFalsePositives;
+  const resolvedJudgeMinConf = parsed.judgeMinConfidence ?? runtimeConfig.judge?.minConfidence;
+
+  const mockJudgeEnv = process.env.AGHAST_MOCK_JUDGE;
+  const useMockJudge = !!(mockJudgeEnv && mockJudgeEnv !== 'false');
+
+  let judgeOptions: JudgeOptions | undefined;
+  if (resolvedJudgeModel) {
+    const judgeProviderName = resolvedJudgeProvider ?? agentProviderName;
+    let judgeProvider: import('./types.js').AgentProvider;
+    if (useMockJudge) {
+      logProgress(TAG, `Mock judge provider enabled via AGHAST_MOCK_JUDGE=${mockJudgeEnv}`);
+      judgeProvider = await createMockJudgeProvider(resolvedJudgeModel);
+    } else if (useMock) {
+      // If scan uses mock, use mock for judge too (tests that set AGHAST_MOCK_AI but not AGHAST_MOCK_JUDGE)
+      logWarn(TAG, 'AGHAST_MOCK_AI is set; judge provider will also use mock (set AGHAST_MOCK_JUDGE to control judge response)');
+      judgeProvider = await createMockJudgeProvider(resolvedJudgeModel);
+    } else {
+      const jp = createProviderByName(judgeProviderName);
+      await jp.initialize({ apiKey: process.env.ANTHROPIC_API_KEY, model: resolvedJudgeModel });
+      judgeProvider = jp;
+    }
+    judgeOptions = {
+      provider: judgeProvider,
+      providerName: useMockJudge || useMock ? 'mock' : judgeProviderName,
+      model: resolvedJudgeModel,
+      concurrency: resolvedJudgeConcurrency,
+      dropFalsePositives: resolvedJudgeDropFP,
+      minConfidence: resolvedJudgeMinConf,
+    };
+    logProgress(TAG, `Judge stage enabled: model=${resolvedJudgeModel}, provider=${judgeOptions.providerName}`);
+  }
+
   try {
-    const outcome = await runMultiScanWithCost({
+    const scanOptions: MultiScanOptions = {
       repositoryPath: effectiveRepoPath,
       checks: checksWithDetails,
       agentProvider: provider,
@@ -853,7 +987,9 @@ export async function runScan(args: string[]): Promise<void> {
       // Prefer the provider's resolved auth mode (covers auto-detected local login);
       // fall back to the env var for providers without the concept (e.g. mock).
       isLocalClaude: provider?.isLocalMode?.() ?? (process.env.AGHAST_LOCAL_CLAUDE === 'true'),
-    });
+      judge: judgeOptions,
+    };
+    const outcome = await runMultiScanWithCost(scanOptions);
     const results = outcome.results;
 
     // Resolve output path: --output flag > runtime config dir > default
@@ -915,6 +1051,11 @@ export async function runScan(args: string[]): Promise<void> {
       const label = formatCostSourceLabel(outcome.costSource, outcome.costReportedBy, outcome.costCoveredBySubscription);
       const equiv = outcome.costCoveredBySubscription ? ' equivalent' : '';
       console.log(`  Cost:          $${outcome.totalCostUsd.toFixed(4)}${equiv}  ${label}`);
+    }
+    if (outcome.judgeSummary) {
+      const js = outcome.judgeSummary;
+      const truePos = js.judgedIssues - js.falsePositives - js.uncertainJudgements;
+      console.log(`  Judged:        ${js.judgedIssues} issues: ${truePos} true / ${js.falsePositives} false / ${js.uncertainJudgements} uncertain (judge: ${outcome.judgeModel})`);
     }
     console.log(`  Duration:      ${globalTimer.elapsedStr()}`);
     console.log(`  Results:       ${resolvedOutputPath}`);
