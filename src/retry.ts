@@ -110,6 +110,12 @@ export function defaultIsRetryable(err: unknown): boolean {
   //    crossed a serialization boundary and lost their prototype.
   if (e.name === 'FatalProviderError' || e.name === 'BudgetExceededError') return false;
 
+  // 0b. aghast's own timeout guard. Classified explicitly rather than falling
+  //     through to the message fallback below, so the decision is deliberate and
+  //     testable rather than a side effect of the word "timeout" appearing in
+  //     the text. Retryable: a hung stream often succeeds on a fresh call.
+  if (e.name === 'AgentTimeoutError') return true;
+
   // 1. Status code (authoritative). If present, this short-circuits message inspection.
   const status = e.status ?? e.statusCode;
   if (typeof status === 'number') {
@@ -154,6 +160,27 @@ export function defaultIsRetryable(err: unknown): boolean {
 export interface CircuitBreakerOptions {
   /** Maximum consecutive total failures before tripping. Must be >= 1. */
   threshold: number;
+}
+
+/**
+ * Thrown when aghast's own per-call guard fires because a provider call did not
+ * return in time. Distinct from a provider-reported network timeout.
+ *
+ * Named rather than message-matched so the retry decision is deliberate: before
+ * this existed, the classification depended on the word "timeout" appearing in
+ * a free-text message, which is exactly the incidental matching the classifier
+ * warns against elsewhere.
+ *
+ * It IS retryable — a hung stream frequently succeeds on a fresh call — but the
+ * cost is visible: with `maxAttempts: n` a genuinely wedged provider takes up to
+ * n × the timeout to give up. That trade is documented in
+ * docs/configuration.md so anyone enabling retry knows what they are buying.
+ */
+export class AgentTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AgentTimeoutError';
+  }
 }
 
 /** Thrown by `withRetry` when the breaker is open (failing fast). */

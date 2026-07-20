@@ -10,13 +10,16 @@
  * markup in AI responses or source code snippets.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readdir, unlink } from 'node:fs/promises';
 import { basename, resolve, sep } from 'node:path';
 import type { ScanResults, SecurityIssue, DataFlowStep } from './types.js';
 // Reuse the shared escaper from the HTML report formatter rather than keeping a
 // second copy — it also handles null/undefined, which a local `string`-only
 // version did not.
 import { escapeHtml } from './formatters/html-formatter.js';
+import { logDebug } from './logging.js';
+
+const TAG = 'issue-files';
 
 export type IndividualIssueFormat = 'markdown' | 'json' | 'html';
 
@@ -226,6 +229,59 @@ export interface WriteIndividualIssueFilesResult {
  * @param format Output format (`markdown` | `json` | `html`).
  * @returns Root directory and the list of files written.
  */
+/**
+ * Matches only the files this module generates: `issue_<NNN>_<slug>.<ext>` with
+ * one of the three known extensions.
+ *
+ * Deliberately strict. The output directory is a normal directory a user may
+ * keep other things in — notes, a README, a previous run they copied aside — and
+ * a loose glob would delete them. Anything not matching this exact shape is
+ * left alone, and directories are never removed.
+ */
+const GENERATED_ISSUE_FILE = /^issue_\d{3,}_.*\.(?:md|json|html)$/;
+
+/**
+ * Remove issue files left by a previous run.
+ *
+ * Without this, a run that produces fewer findings than the last one leaves the
+ * surplus behind: the writer numbers from 1 each time, so old `issue_004_*`
+ * files survive and read as current findings. Stale results in a security
+ * report are worse than no results.
+ *
+ * Best-effort by design — a directory that cannot be read is skipped rather
+ * than failing the scan, since the report itself has already been written.
+ */
+async function clearStaleIssueFiles(rootDir: string): Promise<number> {
+  let removed = 0;
+  let entries;
+  try {
+    entries = await readdir(rootDir, { withFileTypes: true });
+  } catch {
+    return 0; // First run: nothing to clear.
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const checkDir = resolve(rootDir, entry.name);
+    let files;
+    try {
+      files = await readdir(checkDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.isFile() || !GENERATED_ISSUE_FILE.test(file.name)) continue;
+      try {
+        await unlink(resolve(checkDir, file.name));
+        removed++;
+      } catch {
+        // Locked or already gone — the write below will overwrite what it can.
+      }
+    }
+  }
+  return removed;
+}
+
 export async function writeIndividualIssueFiles(
   results: ScanResults,
   outputDir: string,
@@ -234,6 +290,13 @@ export async function writeIndividualIssueFiles(
   const projectName = deriveProjectName(results);
   const rootDir = resolve(outputDir, `security_issues_${projectName}`);
   await mkdir(rootDir, { recursive: true });
+
+  // Clear before writing, so a run with fewer findings than the last one does
+  // not leave the surplus behind looking current.
+  const removed = await clearStaleIssueFiles(rootDir);
+  if (removed > 0) {
+    logDebug(TAG, `Removed ${removed} issue file(s) from a previous run in ${rootDir}`);
+  }
 
   // Group issues by checkId, preserving order (the order issues were collected).
   const grouped = new Map<string, SecurityIssue[]>();

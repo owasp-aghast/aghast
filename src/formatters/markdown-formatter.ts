@@ -298,6 +298,19 @@ function renderIssue(issue: SecurityIssue, ordinal: number): string[] {
     lines.push('');
     lines.push(issue.recommendation);
   }
+  if (issue.judge) {
+    lines.push('');
+    lines.push('**Judge verdict:**');
+    lines.push('');
+    const confidence = `${Math.round(issue.judge.confidence * 100)}% confidence`;
+    lines.push(`- **Verdict:** ${issue.judge.verdict} (${confidence})`);
+    lines.push(`- **Model:** ${inlineCode(issue.judge.model)}`);
+    if (issue.judge.rationale) {
+      // Rationale is model-authored free text; escape it so a stray backtick or
+      // pipe cannot break out of the bullet and corrupt the rest of the report.
+      lines.push(`- **Rationale:** ${escapeInlineText(issue.judge.rationale)}`);
+    }
+  }
   return lines;
 }
 
@@ -374,6 +387,51 @@ function renderStatistics(results: ScanResults): string {
       + `output ${results.tokenUsage.outputTokens.toLocaleString('en-US')})`,
     );
   }
+  // Cost sits with tokens rather than under its own heading: it is the same
+  // question ("what did this run consume?") and the reader is already here.
+  const cost = results.metadata?.cost;
+  if (cost) {
+    lines.push(`- **Estimated cost:** ${formatCost(cost.totalCostUsd, cost.currency)}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Format a cost for display. Sub-cent runs are common with cheap models, and
+ * rounding them to "$0.00" reads as "free" rather than "very small", so those
+ * get four decimal places instead of two.
+ */
+function formatCost(amount: number, currency: string): string {
+  const decimals = amount > 0 && amount < 0.01 ? 4 : 2;
+  const value = amount.toFixed(decimals);
+  return currency === 'USD' ? `$${value}` : `${value} ${escapeInlineText(currency)}`;
+}
+
+/**
+ * Judge verdict counts. Rendered only when the judge stage ran — `judgedIssues`
+ * is the marker, since every other counter is legitimately zero on a clean scan
+ * and cannot distinguish "judge ran and found nothing" from "judge never ran".
+ */
+function renderJudgeSummary(results: ScanResults): string | null {
+  const { summary } = results;
+  if (summary.judgedIssues === undefined) return null;
+
+  const lines: string[] = [];
+  lines.push('## Judge Verdicts');
+  lines.push('');
+  lines.push(`- **Issues judged:** ${summary.judgedIssues}`);
+  if (summary.falsePositives !== undefined) {
+    lines.push(`- **Judged false positive:** ${summary.falsePositives}`);
+  }
+  if (summary.uncertainJudgements !== undefined) {
+    lines.push(`- **Uncertain:** ${summary.uncertainJudgements}`);
+  }
+  if (summary.flaggedByCheck !== undefined) {
+    lines.push(`- **Flagged by check:** ${summary.flaggedByCheck}`);
+  }
+  if (summary.flaggedByJudge !== undefined) {
+    lines.push(`- **Flagged by judge:** ${summary.flaggedByJudge}`);
+  }
   return lines.join('\n');
 }
 
@@ -444,6 +502,8 @@ export class MarkdownFormatter implements OutputFormatter {
     if (flagged) sections.push(flagged);
     const errors = renderErrors(results);
     if (errors) sections.push(errors);
+    const judge = renderJudgeSummary(results);
+    if (judge) sections.push(judge);
     sections.push(renderStatistics(results));
     const ci = renderCIMetadata(results);
     if (ci) sections.push(ci);

@@ -6,7 +6,7 @@
 
 import { logProgress, logDebug, logWarn, createTimer } from './logging.js';
 import { type AgentProvider, type AgentResponse, type SecurityIssue, type JudgeVerdict } from './types.js';
-import { withRetry, defaultIsRetryable, DEFAULT_RETRY, type RetryOptions, type CircuitBreaker } from './retry.js';
+import { withRetry, defaultIsRetryable, DEFAULT_RETRY, AgentTimeoutError, type RetryOptions, type CircuitBreaker } from './retry.js';
 import { BudgetExceededError } from './budget.js';
 import { type ScanCostTracker, preflightBudget, recordUsage } from './cost-tracker.js';
 import { type AbortHandle, mapWithConcurrency } from './concurrency.js';
@@ -20,9 +20,12 @@ const DEFAULT_JUDGE_TIMEOUT_MS = 5 * 60 * 1000;
  * DEFAULT_JUDGE_TIMEOUT_MS. Module-private: callers distinguish it via
  * `instanceof JudgeTimeoutError` inside this module only.
  */
-class JudgeTimeoutError extends Error {
+class JudgeTimeoutError extends AgentTimeoutError {
   constructor(timeoutSeconds: number) {
     super(`Judge provider timed out after ${timeoutSeconds}s`);
+    // Deliberately does NOT override `name`: the retry classifier matches on
+    // `AgentTimeoutError` by name (so it survives a serialization boundary),
+    // and callers in this module distinguish it with `instanceof` anyway.
   }
 }
 

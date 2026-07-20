@@ -48,7 +48,7 @@ import type { ScanRecord } from './scan-history.js';
 import { collectCIMetadata } from './ci-metadata.js';
 import { type ScanCostTracker, createCostTracker, recordUsage, preflightBudget } from './cost-tracker.js';
 import { type AbortHandle, mapWithConcurrency } from './concurrency.js';
-import { withRetry, defaultIsRetryable, CircuitBreaker, DEFAULT_RETRY, isRetryEnabled, type RetryOptions } from './retry.js';
+import { withRetry, defaultIsRetryable, CircuitBreaker, DEFAULT_RETRY, isRetryEnabled, AgentTimeoutError, type RetryOptions } from './retry.js';
 import { type JudgeOptions, runJudge, applyJudgeResults } from './judge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -754,7 +754,7 @@ async function executeTargetedCheck(
               ),
               new Promise<never>((_, reject) => {
                 timeoutHandle = setTimeout(
-                  () => reject(new Error(
+                  () => reject(new AgentTimeoutError(
                     `Agent provider timed out after ${DEFAULT_TARGET_TIMEOUT_MS / 1000}s on target ${target.label}`,
                   )),
                   DEFAULT_TARGET_TIMEOUT_MS,

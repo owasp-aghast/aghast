@@ -155,6 +155,36 @@ export async function loadRuntimeConfig(configDir?: string, explicitPath?: strin
       }
     }
   }
+  if (obj.retry !== undefined) {
+    if (typeof obj.retry !== 'object' || obj.retry === null || Array.isArray(obj.retry)) {
+      throw new Error(`Runtime config "${pathToLoad}": "retry" must be an object`);
+    }
+    const retry = obj.retry as Record<string, unknown>;
+    // Validated at load rather than at first use: an invalid retry setting
+    // otherwise surfaces mid-scan, after AI calls have already been paid for.
+    const positiveInt = (key: string, min: number): void => {
+      const value = retry[key];
+      if (value === undefined) return;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < min) {
+        throw new Error(
+          `Runtime config "${pathToLoad}": "retry.${key}" must be an integer >= ${min}`,
+        );
+      }
+    };
+    // maxAttempts counts the first attempt, so 1 is valid and means no retry.
+    positiveInt('maxAttempts', 1);
+    positiveInt('baseDelayMs', 0);
+    positiveInt('maxDelayMs', 0);
+    positiveInt('circuitBreakerThreshold', 1);
+
+    const base = retry.baseDelayMs;
+    const max = retry.maxDelayMs;
+    if (typeof base === 'number' && typeof max === 'number' && max < base) {
+      throw new Error(
+        `Runtime config "${pathToLoad}": "retry.maxDelayMs" (${max}) must be >= "retry.baseDelayMs" (${base})`,
+      );
+    }
+  }
   if (obj.pricing !== undefined) {
     if (typeof obj.pricing !== 'object' || obj.pricing === null || Array.isArray(obj.pricing)) {
       throw new Error(`Runtime config "${pathToLoad}": "pricing" must be an object`);

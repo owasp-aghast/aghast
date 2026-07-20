@@ -18,7 +18,6 @@ import type {
   SecurityIssue,
   CheckExecutionSummary,
   RepositoryInfo,
-  ScanSummary,
 } from '../types.js';
 import type { OutputFormatter } from './types.js';
 
@@ -255,7 +254,47 @@ function renderHeader(results: ScanResults): string {
   `;
 }
 
-function renderSummary(summary: ScanSummary, _repo: RepositoryInfo): string {
+/**
+ * Format a cost for display. Sub-cent runs are common with cheap models, and
+ * rounding them to "$0.00" reads as "free" rather than "very small".
+ */
+function formatCost(amount: number, currency: string): string {
+  const decimals = amount > 0 && amount < 0.01 ? 4 : 2;
+  const value = amount.toFixed(decimals);
+  return currency === 'USD' ? `$${value}` : `${value} ${escapeHtml(currency)}`;
+}
+
+function renderSummary(results: ScanResults, _repo: RepositoryInfo): string {
+  const { summary } = results;
+  const extra: string[] = [];
+
+  // Judge tiles appear only when the stage ran. `judgedIssues` is the marker:
+  // every other counter is legitimately zero on a clean scan and cannot
+  // distinguish "judge ran and found nothing" from "judge never ran".
+  if (summary.judgedIssues !== undefined) {
+    extra.push(
+      `<div class="stat"><div class="num">${summary.judgedIssues}</div><div class="label">Judged</div></div>`,
+    );
+    if (summary.falsePositives !== undefined) {
+      extra.push(
+        `<div class="stat"><div class="num">${summary.falsePositives}</div><div class="label">False positives</div></div>`,
+      );
+    }
+    if (summary.uncertainJudgements !== undefined) {
+      extra.push(
+        `<div class="stat"><div class="num">${summary.uncertainJudgements}</div><div class="label">Uncertain</div></div>`,
+      );
+    }
+  }
+
+  const cost = results.metadata?.cost;
+  if (cost) {
+    extra.push(
+      `<div class="stat"><div class="num">${escapeHtml(formatCost(cost.totalCostUsd, cost.currency))}</div>`
+      + `<div class="label">Est. cost</div></div>`,
+    );
+  }
+
   return `
     <section class="summary-grid">
       <div class="stat"><div class="num">${summary.totalChecks}</div><div class="label">Checks</div></div>
@@ -264,6 +303,7 @@ function renderSummary(summary: ScanSummary, _repo: RepositoryInfo): string {
       <div class="stat"><div class="num">${summary.flaggedChecks}</div><div class="label">Flagged</div></div>
       <div class="stat"><div class="num">${summary.errorChecks}</div><div class="label">Errors</div></div>
       <div class="stat"><div class="num">${summary.totalIssues}</div><div class="label">Issues</div></div>
+      ${extra.join('\n      ')}
     </section>
   `;
 }
@@ -272,10 +312,20 @@ function renderIssuesTable(issues: SecurityIssue[], statusByCheck: Map<string, s
   if (issues.length === 0) {
     return `<section class="card"><h2>Issues</h2><p class="empty">No issues detected.</p></section>`;
   }
+  // Only carry a Verdict column when the judge actually annotated something.
+  // A permanently empty column on every non-judged scan is worse than none.
+  const hasVerdicts = issues.some((i) => i.judge);
   const rows = issues.map((issue) => {
     const sev = issue.severity ?? '';
     const sevCls = severityClass(issue.severity);
     const sevBadge = `<span class="badge ${sevCls}">${escapeHtml(sev || 'unknown')}</span>`;
+    const verdictCell = hasVerdicts
+      ? `<td>${issue.judge
+          ? `<span class="badge">${escapeHtml(issue.judge.verdict)}</span> `
+            + `<span title="${escapeHtml(issue.judge.rationale ?? '')}">`
+            + `${Math.round(issue.judge.confidence * 100)}%</span>`
+          : ''}</td>`
+      : '';
     // Fall back to 'UNKNOWN' (not 'FAIL') for orphaned issues so the row's
     // status badge and the data-status filter don't lie when an issue
     // references a checkId that isn't in the checks list.
@@ -291,6 +341,7 @@ function renderIssuesTable(issues: SecurityIssue[], statusByCheck: Map<string, s
         <td>${sevBadge}</td>
         <td><code>${escapeHtml(issue.file)}</code>:${escapeHtml(issue.startLine)}-${escapeHtml(issue.endLine)}</td>
         <td>${escapeHtml(issue.description)}</td>
+        ${verdictCell}
       </tr>
     `;
   }).join('');
@@ -317,7 +368,7 @@ function renderIssuesTable(issues: SecurityIssue[], statusByCheck: Map<string, s
       </div>
       <table id="issues-table" aria-label="Security issues">
         <thead>
-          <tr><th>Check ID</th><th>Check</th><th>Status</th><th>Severity</th><th>Location</th><th>Description</th></tr>
+          <tr><th>Check ID</th><th>Check</th><th>Status</th><th>Severity</th><th>Location</th><th>Description</th>${hasVerdicts ? '<th>Verdict</th>' : ''}</tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -397,7 +448,7 @@ export class HtmlFormatter implements OutputFormatter {
 <body>
   <div class="container">
     ${renderHeader(results)}
-    ${renderSummary(results.summary, results.repository)}
+    ${renderSummary(results, results.repository)}
     ${renderIssuesTable(results.issues, statusByCheck)}
     ${renderCheckDetails(results.checks, issuesByCheck)}
     <footer>Generated by aghast v${escapeHtml(results.version)}</footer>

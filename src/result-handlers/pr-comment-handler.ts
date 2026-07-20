@@ -76,6 +76,12 @@ export interface PRCommentContext {
 export interface PRCommentResult {
   posted: number;
   skipped: number;
+  /**
+   * Findings that were eligible to post but exceeded the per-review cap. They
+   * are named in the review summary and remain in the scan report; they are not
+   * counted as `skipped`, which means "deliberately not applicable".
+   */
+  omitted?: number;
 }
 
 /**
@@ -373,15 +379,30 @@ async function listExistingReviewComments(
   });
 }
 
+/**
+ * Upper bound on inline comments in a single review.
+ *
+ * A noisy check against a large diff could otherwise post hundreds of comments
+ * in one API call — unreviewable for the author, and large enough to risk the
+ * request being rejected outright, which loses every comment rather than some.
+ * Truncating is the lesser harm, and it is surfaced in the review body rather
+ * than dropped silently. Mirrors `limitTargets` in the SARIF parser.
+ */
+const DEFAULT_MAX_INLINE_COMMENTS = 50;
+
 async function postReview(
   executor: CommandExecutor,
   ctx: PRCommentContext,
   comments: ReviewComment[],
+  omitted = 0,
 ): Promise<void> {
   const path = `repos/${ctx.owner}/${ctx.repo}/pulls/${ctx.prNumber}/reviews`;
+  const summary = `aghast posted ${comments.length} finding${comments.length === 1 ? '' : 's'}.`;
   const body: Record<string, unknown> = {
     event: 'COMMENT',
-    body: `aghast posted ${comments.length} finding${comments.length === 1 ? '' : 's'}.`,
+    body: omitted > 0
+      ? `${summary} ${omitted} further finding${omitted === 1 ? '' : 's'} ${omitted === 1 ? 'was' : 'were'} not posted inline (capped at ${comments.length} per review) — see the full scan report for the complete list.`
+      : summary,
     comments,
   };
   if (ctx.headSha) body.commit_id = ctx.headSha;
@@ -398,6 +419,11 @@ async function postReview(
 export interface PostPRCommentsOptions {
   /** Inject a custom executor for testing. Defaults to spawning `gh`. */
   executor?: CommandExecutor;
+  /**
+   * Maximum inline comments in one review (default 50). Findings beyond the cap
+   * are reported in the review summary rather than dropped silently.
+   */
+  maxComments?: number;
 }
 
 /**
@@ -495,11 +521,27 @@ export async function postPRComments(
     return { posted: 0, skipped: totalSkipped };
   }
 
-  await postReview(executor, ctx, toPost);
+  const maxComments = options.maxComments ?? DEFAULT_MAX_INLINE_COMMENTS;
+  const capped = toPost.slice(0, maxComments);
+  const omitted = toPost.length - capped.length;
+  if (omitted > 0) {
+    logWarn(
+      TAG,
+      `${toPost.length} comments to post exceeds the cap of ${maxComments}; ` +
+        `posting the first ${capped.length} and noting the remaining ${omitted} in the review summary. ` +
+        'All findings remain in the scan report.',
+    );
+  }
+
+  await postReview(executor, ctx, capped, omitted);
   logProgress(
     TAG,
-    `Posted ${toPost.length} comment(s); skipped ${totalSkipped} (${skippedOutsideDiff} outside diff, ${skippedDuplicate} duplicate)`,
+    `Posted ${capped.length} comment(s); skipped ${totalSkipped} (${skippedOutsideDiff} outside diff, ${skippedDuplicate} duplicate)`,
   );
 
-  return { posted: toPost.length, skipped: totalSkipped };
+  // Only present when something was actually omitted, so the result shape is
+  // unchanged for the overwhelmingly common case (and for existing consumers).
+  return omitted > 0
+    ? { posted: capped.length, skipped: totalSkipped, omitted }
+    : { posted: capped.length, skipped: totalSkipped };
 }

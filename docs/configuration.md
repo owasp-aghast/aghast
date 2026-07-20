@@ -74,7 +74,7 @@ configured criterion matches the target repo.
 ```json
 {
   "id": "aghast-typescript-only",
-  "repositories": [],
+  "repositories": ["org/payments-api"],
   "matchCriteria": {
     "hasFileTypes": [".ts", ".tsx"],
     "hasFiles": ["package.json"],
@@ -83,6 +83,17 @@ configured criterion matches the target repo.
   }
 }
 ```
+
+This check runs on `org/payments-api` because it is listed explicitly, **and** on
+any other repository satisfying every criterion: it contains at least one `.ts`
+or `.tsx` file, has a `package.json`, has files under `src/api/` or `src/routes/`,
+and is tagged both `backend` and `api-service`.
+
+> **Do not pair `matchCriteria` with `"repositories": []`.** An empty
+> `repositories` array already matches every repository, so the criteria can
+> never narrow anything and the check runs everywhere — the opposite of what the
+> config appears to say. Use a non-empty list, as above, or omit the explicit
+> repositories you don't need and let the criteria do the selecting.
 
 | Criterion       | Type       | Match when |
 |-----------------|------------|------------|
@@ -254,7 +265,7 @@ Diff filtering works identically for `openant` discovery: the filter narrows the
 | `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
 | `checkTarget`      | `object`                      | No       | Target configuration (omit for repository checks) |
 | `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
-| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `opengrep`, `sarif`, `openant`, or `glob` (***required for `targeted` and `static` types) |
+| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `opengrep`, `sarif`, `openant`, `glob`, or `script` (***required for `targeted` and `static` types) |
 | `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
 | `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `semgrep` or `opengrep` discovery — both tools share the same rule syntax) |
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
@@ -452,7 +463,7 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `agentProvider.model`           | `string`   | (provider default) | Model ID override. For `opencode`, use `providerID/modelID` format (e.g. `opencode/nemotron-3-super-free`) |
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
 | `reporting.outputFormat`        | `string`   | `json` | Output format: `json`, `sarif`, `csv`, `html`, or `markdown` (see [Scanning › Output Formats](scanning.md#output-formats)) |
-| `reporting.includeIndividualIssueFiles` | `boolean` | `false` | When `true`, write one file per issue under `security_issues_<project>/<check-id>/` alongside the main report (Spec E.3.2). The directory is created in the same folder as the main report |
+| `reporting.includeIndividualIssueFiles` | `boolean` | `false` | When `true`, write one file per issue under `security_issues_<project>/<check-id>/` alongside the main report (Spec E.3.2). The directory is created in the same folder as the main report. Each run first removes `issue_<NNN>_*` files left by the previous run, so a scan with fewer findings does not leave stale ones behind; files you add yourself are not touched |
 | `reporting.individualIssueFormat` | `string` | `markdown` | Format for individual issue files: `markdown`, `json`, or `html`. Ignored unless `includeIndividualIssueFiles` is `true` |
 | `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |
 | `logging.logType`               | `string`   | `file` | Log file handler type. Pluggable; currently only `file` is supported |

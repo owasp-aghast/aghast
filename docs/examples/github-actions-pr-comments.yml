@@ -1,0 +1,81 @@
+# Example: post aghast findings as inline review comments on a pull request.
+#
+# Copy into .github/workflows/ and adjust the config-dir path. Referenced from
+# docs/scanning.md → "Posting Findings to GitHub Pull Requests".
+#
+# What this demonstrates:
+#   - the `pull-requests: write` permission that inline comments require
+#   - diff-scoped scanning, so only code the PR touched is analysed
+#   - fetch-depth: 0, without which the base ref is unreachable and the diff
+#     filter silently has nothing to compare against
+#   - confining --pr to a single job, since comment dedup is per-run
+
+name: Security scan (PR comments)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  # Required to post review comments. Without it `gh` fails and aghast reports
+  # [E7201] — the scan still completes and the report is still written, but no
+  # comments appear.
+  pull-requests: write
+
+jobs:
+  aghast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The default shallow clone (depth 1) cannot see the base branch, so
+          # `git diff` finds nothing and diff filtering has no effect.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install aghast
+        run: npm install -g @owasp-aghast/aghast
+
+      # Your check definitions live in their own repository.
+      - name: Fetch check definitions
+        run: git clone --depth=1 https://github.com/your-org/your-aghast-checks.git checks-config
+
+      - name: Run scan and post findings to the PR
+        env:
+          # Auth for the `gh` CLI. GITHUB_TOKEN is provided automatically.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Scope the scan to code this PR touched.
+          AGHAST_DIFF_REF: origin/${{ github.base_ref }}
+          # Retry is off by default; unattended runs benefit from it, since a
+          # transient provider failure would otherwise mean re-running the job.
+          AGHAST_RETRY_MAX_ATTEMPTS: '3'
+        run: |
+          aghast scan . \
+            --config-dir ./checks-config \
+            --pr ${{ github.event.pull_request.number }} \
+            --output-format sarif \
+            --output aghast.sarif
+          # --repo, --base-sha and --head-sha are omitted deliberately: aghast
+          # reads $GITHUB_REPOSITORY / $GITHUB_BASE_SHA / $GITHUB_HEAD_SHA.
+
+      # Keep the machine-readable report even when the step above fails, so a
+      # failed scan is still diagnosable.
+      - name: Upload SARIF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aghast-sarif
+          path: aghast.sarif
+
+# Notes
+#
+# Exit codes: by default aghast exits 0 even when checks FAIL, so findings do
+# not block the PR — the comments are the signal. Add --fail-on-check-failure
+# to turn findings into a red build once you trust the checks.
+#
+# Parallel shards: comment dedup is per-run, so two jobs posting to the same PR
+# concurrently can each produce comments. Keep --pr in one job.

@@ -41,7 +41,7 @@ describe('CsvFormatter', () => {
     assert.equal(lines.length, 1);
     assert.equal(
       lines[0],
-      'checkId,checkName,status,file,startLine,endLine,severity,confidence,description,recommendation',
+      'checkId,checkName,status,file,startLine,endLine,severity,confidence,description,recommendation,judgeVerdict,judgeConfidence,judgeRationale',
     );
   });
 
@@ -73,7 +73,9 @@ describe('CsvFormatter', () => {
     assert.equal(lines.length, 2);
     assert.equal(
       lines[1],
-      'c1,C1,FAIL,src/app.ts,10,15,high,medium,SQL injection,Use parameterized queries',
+      // Trailing empty cells are the judge columns, which are always present so
+      // the header shape does not change with runtime configuration.
+      'c1,C1,FAIL,src/app.ts,10,15,high,medium,SQL injection,Use parameterized queries,,,',
     );
   });
 
@@ -186,7 +188,7 @@ describe('CsvFormatter', () => {
     });
     const out = formatter.format(results);
     const lines = out.split('\r\n').filter((l) => l.length > 0);
-    assert.equal(lines[1], 'c1,C1,FAIL,a.ts,1,1,,,x,');
+    assert.equal(lines[1], 'c1,C1,FAIL,a.ts,1,1,,,x,,,,');
   });
 
   it('orphaned issue (no matching checks entry) gets status UNKNOWN', () => {
@@ -251,5 +253,61 @@ describe('normalizeDescription', () => {
     const out = normalizeDescription('x'.repeat(600));
     assert.equal(out.length, 500);
     assert.ok(out.endsWith('…'));
+  });
+});
+
+describe('CsvFormatter: judge verdict columns', () => {
+  const formatter = new CsvFormatter();
+
+  it('emits verdict, confidence and rationale for a judged issue', () => {
+    const out = formatter.format(makeResults({
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1,
+        description: 'x',
+        judge: {
+          verdict: 'false_positive',
+          confidence: 0.92,
+          rationale: 'Input is validated upstream.',
+          model: 'claude-opus-4-7',
+          provider: 'claude-code',
+        },
+      }],
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issueCount: 1, executionTime: 1 }],
+    }));
+    const row = out.split('\r\n')[1]!;
+    assert.ok(row.endsWith('false_positive,0.92,Input is validated upstream.'), `unexpected row: ${row}`);
+  });
+
+  it('flattens and quotes a multi-line rationale so the row stays intact', () => {
+    const out = formatter.format(makeResults({
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1,
+        description: 'x',
+        judge: {
+          verdict: 'uncertain',
+          confidence: 0.4,
+          rationale: 'Line one,\nline two\r\nline three',
+          model: 'm', provider: 'p',
+        },
+      }],
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issueCount: 1, executionTime: 1 }],
+    }));
+    const lines = out.split('\r\n').filter((l) => l.length > 0);
+    // The embedded newlines must not split the row, and the comma must be quoted.
+    assert.equal(lines.length, 2, `rationale newlines leaked into new rows: ${JSON.stringify(lines)}`);
+    assert.ok(lines[1]!.includes('"Line one, line two line three"'), `unexpected row: ${lines[1]}`);
+  });
+
+  it('scan-level cost is deliberately absent — summing a repeated scalar would mislead', () => {
+    const out = formatter.format(makeResults({
+      metadata: { cost: { totalCostUsd: 1.23, currency: 'USD' } },
+      issues: [
+        { checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1, description: 'x' },
+        { checkId: 'c1', checkName: 'C1', file: 'b.ts', startLine: 2, endLine: 2, description: 'y' },
+      ],
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issueCount: 2, executionTime: 1 }],
+    }));
+    assert.ok(!out.includes('1.23'), 'cost must not appear per-row in CSV');
+    assert.ok(!out.toLowerCase().includes('cost'), 'no cost column should exist');
   });
 });
