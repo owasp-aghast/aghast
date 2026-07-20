@@ -11,6 +11,7 @@
  *   E70xx — Budget / cost controls
  *   E71xx — Script discovery
  *   E72xx — Result handlers (PR comments, issue trackers, notifications)
+ *   E8xxx — Judge stage
  *   E9xxx — Internal/fatal
  */
 
@@ -70,6 +71,8 @@ export const ERROR_CODES = {
 
   // E72xx — Result handlers
   E7201: ec('E7201', 'PR comment posting failed'),
+  // E8xxx — Judge stage
+  E8001: ec('E8001', 'Judge mock response file not found'),
 
   // E9xxx — Internal
   E9001: ec('E9001', 'Fatal internal error'),

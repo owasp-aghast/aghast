@@ -41,10 +41,13 @@ import {
   type TokenUsage,
   type ValidationRecord,
 } from './types.js';
-import { calculateCost, type PricingConfig, type CostBreakdown } from './cost-calculator.js';
-import { checkBudget, BudgetExceededError, type BudgetLimits } from './budget.js';
+import type { PricingConfig, CostBreakdown } from './cost-calculator.js';
+import { BudgetExceededError, type BudgetLimits } from './budget.js';
 import type { ScanRecord } from './scan-history.js';
 import { collectCIMetadata } from './ci-metadata.js';
+import { type ScanCostTracker, createCostTracker, recordUsage, preflightBudget } from './cost-tracker.js';
+import { type AbortHandle, mapWithConcurrency } from './concurrency.js';
+import { type JudgeOptions, runJudge, applyJudgeResults } from './judge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TAG = 'scan';
@@ -179,55 +182,6 @@ async function getVersion(): Promise<string> {
   }
 }
 
-/** Handle for signaling abort to mapWithConcurrency workers. */
-interface AbortHandle {
-  aborted: boolean;
-  reason?: Error;
-}
-
-/**
- * Run an async function over items with bounded concurrency.
- * Spawns min(concurrency, items.length) workers that pull from a shared index.
- * Results are written to a pre-allocated array to preserve input order.
- *
- * If abortHandle is provided, workers stop picking up new items once
- * abortHandle.aborted is set to true. In-flight items complete naturally.
- */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
-  abortHandle?: AbortHandle,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  async function worker(): Promise<void> {
-    while (nextIndex < items.length) {
-      if (abortHandle?.aborted) break;
-      // Safe without atomics: Node.js is single-threaded, so nextIndex++ is
-      // not interleaved — each worker awaits before looping, yielding to the
-      // event loop where the next worker reads and increments the same variable.
-      const i = nextIndex++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-
-  const workerCount = Math.min(concurrency, items.length);
-  const workers: Promise<void>[] = [];
-  for (let w = 0; w < workerCount; w++) {
-    workers.push(worker());
-  }
-
-  // Use allSettled so in-flight items complete before we propagate errors
-  const settled = await Promise.allSettled(workers);
-  const firstRejection = settled.find((r) => r.status === 'rejected');
-  if (firstRejection && firstRejection.status === 'rejected') {
-    throw firstRejection.reason;
-  }
-
-  return results;
-}
 
 export interface MultiScanOptions {
   repositoryPath: string;
@@ -265,85 +219,18 @@ export interface MultiScanOptions {
   scanHistory?: ScanRecord[];
   /** true when AGHAST_LOCAL_CLAUDE=true — triggers budget warning if limits are also set */
   isLocalClaude?: boolean;
+  /** Judge stage options. The stage runs iff this is provided (model presence enforced by caller). */
+  judge?: JudgeOptions;
+  /**
+   * Map of checkId → check instructions content, used by the judge to frame its verdict.
+   * When omitted, the judge runs without check-specific context.
+   */
+  judgeCheckInstructions?: Map<string, string>;
 }
 
-/**
- * Tracks accumulated tokens/cost across a scan so the budget can be evaluated
- * before each AI call. Mutated in place by AI invocations.
- */
-export interface ScanCostTracker {
-  pricing?: PricingConfig;
-  budgetLimits?: BudgetLimits;
-  scanHistory?: ScanRecord[];
-  totalTokens: number;
-  totalCostUsd: number;
-  /** Cost source from the last recorded AI call. Used for banner labelling. */
-  lastCostSource?: CostBreakdown['source'];
-  lastCostReportedBy?: CostBreakdown['reportedBy'];
-  lastCostCoveredBySubscription?: boolean;
-  /** Set true after the first warn so we don't log it repeatedly. */
-  warned: boolean;
-  /** Most recent budget action returned to the runner. */
-  lastAction: 'continue' | 'warn' | 'abort';
-  /** Reason from the most recent non-continue check. */
-  lastReason?: string;
-}
-
-function createCostTracker(options: MultiScanOptions): ScanCostTracker {
-  return {
-    pricing: options.pricing,
-    budgetLimits: options.budgetLimits,
-    scanHistory: options.scanHistory,
-    totalTokens: 0,
-    totalCostUsd: 0,
-    warned: false,
-    lastAction: 'continue',
-  };
-}
-
-/**
- * Record an AI call's token usage against the tracker. Called after each
- * successful executeCheck().
- */
-function recordUsage(
-  tracker: ScanCostTracker,
-  usage: TokenUsage | undefined,
-  model: string,
-): void {
-  if (!usage || !tracker.pricing) return;
-  const cost = calculateCost(usage, model, tracker.pricing);
-  tracker.totalTokens += usage.totalTokens;
-  tracker.totalCostUsd += cost.totalCost;
-  tracker.lastCostSource = cost.source;
-  tracker.lastCostReportedBy = cost.reportedBy;
-  tracker.lastCostCoveredBySubscription = cost.coveredBySubscription;
-}
-
-/**
- * Check the budget before an AI call. Logs a warning the first time the warn
- * threshold is crossed; throws BudgetExceededError when the abort threshold is
- * crossed.
- */
-function preflightBudget(tracker: ScanCostTracker): void {
-  if (!tracker.budgetLimits) return;
-  const status = checkBudget(
-    {
-      currentScanCostUsd: tracker.totalCostUsd,
-      currentScanTokens: tracker.totalTokens,
-      history: tracker.scanHistory,
-    },
-    tracker.budgetLimits,
-  );
-  tracker.lastAction = status.action;
-  tracker.lastReason = status.reason;
-  if (status.action === 'abort') {
-    throw new BudgetExceededError(status.reason ?? 'Budget limit exceeded');
-  }
-  if (status.action === 'warn' && !tracker.warned) {
-    tracker.warned = true;
-    logProgress(TAG, `Budget warning: ${status.reason ?? 'approaching limit'}`);
-  }
-}
+// ScanCostTracker, createCostTracker, recordUsage, preflightBudget are imported from cost-tracker.ts
+// Re-export ScanCostTracker so existing consumers of scan-runner.ts don't break.
+export type { ScanCostTracker };
 
 /**
  * Generate a scanId in the format: scan-<timestamp>-<hash>
@@ -1164,6 +1051,10 @@ export interface MultiScanOutcome {
   budgetAborted?: boolean;
   /** Reason from the budget abort, when budgetAborted is true. */
   budgetAbortReason?: string;
+  /** Judge model name when the judge stage ran. */
+  judgeModel?: string;
+  /** Judge verdicts summary when the judge stage ran. */
+  judgeSummary?: { judgedIssues: number; falsePositives: number; uncertainJudgements: number };
 }
 
 /**
@@ -1208,7 +1099,11 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
   let budgetAbortReason: string | undefined;
 
   // Cost / budget tracking spans all checks in the scan.
-  const costTracker = createCostTracker(options);
+  const costTracker = createCostTracker({
+    pricing: options.pricing,
+    budgetLimits: options.budgetLimits,
+    scanHistory: options.scanHistory,
+  });
 
   // Track all models used during the scan
   const modelsUsed = new Set<string>();
@@ -1319,6 +1214,60 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
     }
   }
 
+  // ─── Judge stage ─────────────────────────────────────────────────────────────
+  // Runs after all checks complete (including budget-aborted scans — partial
+  // results still benefit from judging). Budget abort during the judge stage
+  // sets budgetAborted=true; partially-judged issues retain their verdicts.
+  let judgeSummary: { judgedIssues: number; falsePositives: number; uncertainJudgements: number } | undefined;
+  if (options.judge && allIssues.length > 0) {
+    // Only record the judge model when the judge actually runs (allIssues.length > 0)
+    modelsUsed.add(options.judge.model);
+    // Build a map of checkId → { check, instructions } for judge prompt context
+    const checksById = new Map<string, { check: { judge?: boolean }; instructions: string | undefined }>();
+    for (const { check, details } of checks) {
+      checksById.set(check.id, { check, instructions: details.content || undefined });
+    }
+    // Also merge in any additional instructions provided via judgeCheckInstructions
+    if (options.judgeCheckInstructions) {
+      for (const [id, instr] of options.judgeCheckInstructions) {
+        const existing = checksById.get(id);
+        if (existing) {
+          existing.instructions = instr;
+        } else {
+          checksById.set(id, { check: {}, instructions: instr });
+        }
+      }
+    }
+
+    try {
+      await runJudge(allIssues, checksById, repositoryPath, options.judge, costTracker);
+    } catch (err) {
+      if (err instanceof BudgetExceededError) {
+        budgetAborted = true;
+        budgetAbortReason = err.message;
+        logProgress(TAG, `Budget exceeded during judge stage: ${err.message}`);
+      } else {
+        throw err;
+      }
+    }
+
+    const judgeResult = applyJudgeResults(allIssues, allCheckSummaries, {
+      dropFalsePositives: options.judge.dropFalsePositives,
+    });
+    // Replace allIssues contents with filtered set
+    allIssues.splice(0, allIssues.length, ...judgeResult.filteredIssues);
+    judgeSummary = {
+      judgedIssues: judgeResult.judgedIssues,
+      falsePositives: judgeResult.falsePositives,
+      uncertainJudgements: judgeResult.uncertainJudgements,
+    };
+    logProgress(
+      TAG,
+      `Judge: ${judgeResult.judgedIssues} judged, ${judgeResult.falsePositives} false positives, ${judgeResult.uncertainJudgements} uncertain`,
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const endTime = new Date();
   const executionTime = endTime.getTime() - startTime.getTime();
 
@@ -1329,6 +1278,21 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
     flaggedChecks: allCheckSummaries.filter((c) => c.status === 'FLAG').length,
     errorChecks: allCheckSummaries.filter((c) => c.status === 'ERROR').length,
     totalIssues: allIssues.length,
+    ...(judgeSummary ? {
+      judgedIssues: judgeSummary.judgedIssues,
+      falsePositives: judgeSummary.falsePositives,
+      uncertainJudgements: judgeSummary.uncertainJudgements,
+      // flaggedByCheck counts FLAG checks whose issues carry flagSource:'check'.
+      // No scan path currently sets flagSource:'check'; this is reserved for a
+      // future pre-judge FLAG escalation path (issue #290 decision #5 / v2).
+      // Until then this will always be 0 — intentional, not a bug.
+      flaggedByCheck: allCheckSummaries.filter(
+        (c) => c.status === 'FLAG' && allIssues.some((i) => i.checkId === c.checkId && i.flagSource === 'check'),
+      ).length,
+      flaggedByJudge: allCheckSummaries.filter(
+        (c) => c.status === 'FLAG' && allIssues.some((i) => i.checkId === c.checkId && i.flagSource === 'judge'),
+      ).length,
+    } : {}),
   };
 
   logProgress(TAG, `Scan completed in ${scanTimer.elapsedStr()}`);
@@ -1381,5 +1345,7 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
     costCoveredBySubscription: costTracker.lastCostCoveredBySubscription,
     budgetAborted,
     budgetAbortReason,
+    judgeModel: options.judge?.model,
+    judgeSummary,
   };
 }

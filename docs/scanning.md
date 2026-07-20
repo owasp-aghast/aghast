@@ -37,6 +37,11 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--repo <owner/repo>` | GitHub repository in `owner/repo` form (defaults to `$GITHUB_REPOSITORY`) |
 | `--base-sha <sha>` | Optional base commit SHA (defaults to `$GITHUB_BASE_SHA`) |
 | `--head-sha <sha>` | Optional head commit SHA (defaults to `$GITHUB_HEAD_SHA` then `$GITHUB_SHA`) |
+| `--judge-model <model>` | Enable the LLM judge stage using this model. The judge re-evaluates all findings post-scan and annotates each issue with a verdict (`true_positive`, `false_positive`, or `uncertain`) |
+| `--judge-provider <name>` | Agent provider for the judge stage (defaults to the scan provider) |
+| `--judge-concurrency <n>` | Max parallel judge calls (default: 5) |
+| `--judge-drop-false-positives` | Remove issues the judge confirms as false positives from the output |
+| `--judge-min-confidence <0-1>` | Demote `true_positive` verdicts with confidence below this threshold to `uncertain` |
 
 Run `aghast scan --help` for the full list of options.
 
@@ -88,6 +93,9 @@ the PR comment phase is non-fatal.
 | `AGHAST_MOCK_SARIF` | Path to a SARIF file to use instead of running Semgrep or Opengrep (test/dev use only; also skips the install prerequisite check for whichever tool the check targets) |
 | `AGHAST_OPENANT_DATASET` | Path to a pre-generated OpenAnt dataset JSON file. When set, aghast uses this dataset directly instead of invoking `openant parse`. Useful for caching the dataset across multiple scans, splitting OpenAnt and aghast into separate CI jobs, running aghast where Python 3.11+ isn't available, or stubbing OpenAnt output in tests |
 | `AGHAST_DIFF_REF` | Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence) |
+| `AGHAST_JUDGE_MODEL` | Enable the LLM judge stage using this model (CLI `--judge-model` takes precedence) |
+| `AGHAST_JUDGE_PROVIDER` | Agent provider for the judge stage (CLI `--judge-provider` takes precedence) |
+| `AGHAST_MOCK_JUDGE` | Set to `true` for a default `true_positive` mock response, or set to a file path for a custom judge response fixture (for testing without a real API key). Note: when `AGHAST_MOCK_AI` is set (without `AGHAST_MOCK_JUDGE`), the judge also uses a mock provider automatically — set `AGHAST_MOCK_JUDGE` explicitly if you need a specific judge response |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
 
 ## Agent Providers
@@ -184,6 +192,51 @@ Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
 Built-in modes (`false-positive-validation`, `general-vuln-discovery`) provide their own prompt template and don't require an instructions file. See [How It Works](how-it-works.md#three-check-types) for details.
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
+
+## LLM Judge Stage
+
+The judge stage re-evaluates all findings after the main scan completes. It runs a separate LLM call per issue and annotates each with a **verdict**, **confidence**, and **rationale**. The judge is independent of the per-check AI agents — it can use a different model or provider.
+
+**Enable** the judge by providing a model via `--judge-model` (or `AGHAST_JUDGE_MODEL`, or `judge.model` in runtime config):
+
+```bash
+aghast scan ./my-repo --config-dir ./checks \
+  --judge-model claude-opus-4-7 \
+  --judge-drop-false-positives
+```
+
+### Verdicts and status effects
+
+| Verdict | Issue `judge.verdict` | Status effect |
+|---|---|---|
+| `true_positive` | `"true_positive"` | Check stays FAIL as before |
+| `false_positive` | `"false_positive"` | No status change; optionally dropped with `--judge-drop-false-positives` |
+| `uncertain` | `"uncertain"` | Check escalates to FLAG (if not already FAIL); `flagSource: "judge"` |
+
+When `--judge-drop-false-positives` is set, confirmed false-positive issues are removed. If a check loses all its issues this way, it becomes PASS.
+
+### Per-check opt-out
+
+Add `"judge": false` to a check's JSON definition to skip judge evaluation for that check's issues:
+
+```json
+{
+  "id": "aghast-my-check",
+  "name": "My Check",
+  "instructionsFile": "aghast-my-check.md",
+  "judge": false
+}
+```
+
+### Judge summary
+
+When the judge stage runs, the scan banner includes a summary line:
+
+```
+  Judged:        12 issues: 9 true / 2 false / 1 uncertain (judge: claude-opus-4-7)
+```
+
+The `ScanSummary` in the JSON output includes `judgedIssues`, `falsePositives`, `uncertainJudgements`, `flaggedByCheck`, and `flaggedByJudge` counts. SARIF output includes `kind` (`open` for true positive, `false` for false positive, `review` for uncertain) and a `properties.judge` object on each result.
 
 ## CI usage — diff-scoped scans on PRs
 

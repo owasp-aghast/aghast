@@ -4,7 +4,7 @@
  * code scanning UIs (e.g. GitHub Code Scanning) and SARIF viewers.
  */
 
-import type { ScanResults, SecurityIssue, DataFlowStep, ValidationRecord, CIMetadata } from '../types.js';
+import type { ScanResults, SecurityIssue, DataFlowStep, ValidationRecord, CIMetadata, JudgeVerdict } from '../types.js';
 import type { OutputFormatter } from './types.js';
 
 /** Maps aghast severity to SARIF result level. */
@@ -55,11 +55,20 @@ interface SarifSuppression {
   justification?: string;
 }
 
+/** Maps judge verdict to SARIF result kind (decision #11). */
+function mapVerdictToKind(verdict: JudgeVerdict['verdict']): 'open' | 'false' | 'review' {
+  switch (verdict) {
+    case 'true_positive': return 'open';
+    case 'false_positive': return 'false';
+    case 'uncertain': return 'review';
+  }
+}
+
 interface SarifResult {
   ruleId: string;
   message: { text: string };
   level?: 'error' | 'warning' | 'note';
-  kind?: 'fail' | 'pass' | 'open' | 'review' | 'notApplicable' | 'informational';
+  kind?: 'fail' | 'pass' | 'open' | 'review' | 'notApplicable' | 'informational' | 'false';
   locations: Array<{
     physicalLocation: {
       artifactLocation: { uri: string };
@@ -68,6 +77,8 @@ interface SarifResult {
   }>;
   codeFlows?: SarifCodeFlow[];
   suppressions?: SarifSuppression[];
+  /** Non-standard run context (judge verdict, flag source) per the SARIF property bag convention. */
+  properties?: Record<string, unknown>;
 }
 
 /**
@@ -76,7 +87,7 @@ interface SarifResult {
  */
 interface SarifInvocation {
   executionSuccessful: boolean;
-  properties?: Record<string, string>;
+  properties?: Record<string, unknown>;
 }
 
 interface SarifLog {
@@ -189,6 +200,27 @@ export class SarifFormatter implements OutputFormatter {
 
       if (issue.dataFlow && issue.dataFlow.length > 0) {
         result.codeFlows = [this.buildCodeFlow(issue.dataFlow)];
+      }
+
+      // Judge verdict → SARIF kind and properties
+      if (issue.judge) {
+        result.kind = mapVerdictToKind(issue.judge.verdict);
+        result.properties = {
+          ...(result.properties ?? {}),
+          judge: {
+            verdict: issue.judge.verdict,
+            confidence: issue.judge.confidence,
+            rationale: issue.judge.rationale,
+            model: issue.judge.model,
+            provider: issue.judge.provider,
+          },
+        };
+      }
+      if (issue.flagSource) {
+        result.properties = {
+          ...(result.properties ?? {}),
+          flagSource: issue.flagSource,
+        };
       }
 
       return result;
