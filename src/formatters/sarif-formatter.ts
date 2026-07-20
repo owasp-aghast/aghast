@@ -55,11 +55,23 @@ interface SarifSuppression {
   justification?: string;
 }
 
-/** Maps judge verdict to SARIF result kind (decision #11). */
-function mapVerdictToKind(verdict: JudgeVerdict['verdict']): 'open' | 'false' | 'review' {
+/**
+ * Maps a judge verdict to a SARIF result kind.
+ *
+ * `false_positive` maps to `pass` rather than the more obvious `false`, because
+ * `false` is not a member of the SARIF 2.1.0 `kind` enum — the spec allows only
+ * `notApplicable`, `pass`, `fail`, `review`, `open` and `informational`, and a
+ * validating consumer rejects the whole document otherwise.
+ *
+ * `pass` is also what this formatter already emits for false positives found by
+ * false-positive-validation checks (see `buildValidationResults`), so both paths
+ * now describe a dismissed finding the same way: `kind: "pass"` plus a
+ * suppression carrying the rationale.
+ */
+function mapVerdictToKind(verdict: JudgeVerdict['verdict']): 'open' | 'pass' | 'review' {
   switch (verdict) {
     case 'true_positive': return 'open';
-    case 'false_positive': return 'false';
+    case 'false_positive': return 'pass';
     case 'uncertain': return 'review';
   }
 }
@@ -68,7 +80,10 @@ interface SarifResult {
   ruleId: string;
   message: { text: string };
   level?: 'error' | 'warning' | 'note';
-  kind?: 'fail' | 'pass' | 'open' | 'review' | 'notApplicable' | 'informational' | 'false';
+  // SARIF 2.1.0 section 3.27.9 — this is the complete, closed set. Note that
+  // "false" is NOT a member, despite reading like the obvious opposite of
+  // "open"; see mapVerdictToKind.
+  kind?: 'notApplicable' | 'pass' | 'fail' | 'review' | 'open' | 'informational';
   locations: Array<{
     physicalLocation: {
       artifactLocation: { uri: string };
@@ -215,6 +230,22 @@ export class SarifFormatter implements OutputFormatter {
             provider: issue.judge.provider,
           },
         };
+
+        if (issue.judge.verdict === 'false_positive') {
+          // Match how false-positive-validation dismissals are already
+          // represented: a suppression carries the reason, so a consumer that
+          // only understands standard SARIF still learns why the finding was
+          // dismissed without reading our `properties` bag.
+          result.suppressions = [
+            ...(result.suppressions ?? []),
+            { kind: 'external', justification: issue.judge.rationale },
+          ];
+          // `level` is meaningless alongside `kind: "pass"` per SARIF 2.1.0, and
+          // `buildValidationResults` omits it for the same reason. Leaving a
+          // severity-derived level here would tell a consumer the finding is
+          // both dismissed and an error.
+          delete result.level;
+        }
       }
       if (issue.flagSource) {
         result.properties = {
