@@ -426,7 +426,7 @@ describe('CLI judge: SARIF output', () => {
     assert.equal(judgeProps.verdict, 'true_positive');
   });
 
-  it('SARIF result for false_positive has kind:false', async () => {
+  it('SARIF result for false_positive has kind:pass with a suppression', async () => {
     await runCLISarif({
       AGHAST_MOCK_AI: failFixtureRepo,
       AGHAST_MOCK_JUDGE: judgeFpFixture,
@@ -442,7 +442,15 @@ describe('CLI judge: SARIF output', () => {
     const sarif = JSON.parse(sarifText) as Record<string, unknown>;
     const runs = sarif.runs as Array<Record<string, unknown>>;
     const results = runs[0].results as Array<Record<string, unknown>>;
-    assert.equal(results[0].kind, 'false', 'false_positive should map to kind:false');
+    // "false" is not a member of the SARIF 2.1.0 kind enum, so it is mapped to
+    // "pass" — the same representation this formatter already uses for
+    // false-positive-validation dismissals — with the reason in a suppression.
+    assert.equal(results[0].kind, 'pass', 'false_positive maps to kind:pass, not the invalid kind:false');
+    const suppressions = results[0].suppressions as Array<Record<string, unknown>>;
+    assert.equal(suppressions.length, 1);
+    assert.equal(suppressions[0].kind, 'external');
+    assert.ok(suppressions[0].justification, 'the judge rationale should be carried as the justification');
+    assert.equal(results[0].level, undefined, 'level is meaningless alongside kind:pass');
   });
 
   it('SARIF result for uncertain has kind:review', async () => {

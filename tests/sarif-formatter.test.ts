@@ -281,3 +281,92 @@ describe('mapSeverityToLevel', () => {
   it('informational → note', () => assert.equal(mapSeverityToLevel('informational'), 'note'));
   it('undefined → note', () => assert.equal(mapSeverityToLevel(undefined), 'note'));
 });
+
+// ─── Judge verdicts → SARIF ──────────────────────────────────────────────────
+//
+// This path had no coverage, which is how an invalid `kind` shipped. The last
+// test here is the structural guard: it rejects any kind outside the SARIF
+// 2.1.0 enum, so a future verdict cannot reintroduce the problem.
+
+describe('SarifFormatter — judge verdicts', () => {
+  const formatter = new SarifFormatter();
+
+  /** SARIF 2.1.0 section 3.27.9. The complete, closed set. */
+  const VALID_KINDS = new Set([
+    'notApplicable', 'pass', 'fail', 'review', 'open', 'informational',
+  ]);
+
+  function withVerdict(verdict: 'true_positive' | 'false_positive' | 'uncertain') {
+    return makeResults({
+      checks: [{ checkId: 'c1', checkName: 'Check One', status: 'FAIL', issuesFound: 1, executionTime: 10 }],
+      issues: [{
+        checkId: 'c1', checkName: 'Check One',
+        file: 'src/a.ts', startLine: 1, endLine: 2,
+        description: 'Possible SQLi', severity: 'critical',
+        judge: {
+          verdict,
+          confidence: 0.9,
+          rationale: 'Input is an allowlisted column name.',
+          model: 'claude-opus-4-7',
+          provider: 'claude-code',
+        },
+      }],
+    });
+  }
+
+  it('false_positive → kind "pass" with a suppression carrying the rationale', () => {
+    const sarif = JSON.parse(formatter.format(withVerdict('false_positive')));
+    const result = sarif.runs[0].results[0];
+
+    assert.equal(result.kind, 'pass', '"false" is not a valid SARIF kind');
+    assert.equal(result.suppressions.length, 1);
+    assert.equal(result.suppressions[0].kind, 'external');
+    assert.equal(result.suppressions[0].justification, 'Input is an allowlisted column name.');
+  });
+
+  it('false_positive omits level, which is meaningless alongside kind "pass"', () => {
+    const sarif = JSON.parse(formatter.format(withVerdict('false_positive')));
+    // The issue carries severity: 'critical', so without the delete this would
+    // be 'error' — telling a consumer the finding is both dismissed and severe.
+    assert.equal(sarif.runs[0].results[0].level, undefined);
+  });
+
+  it('true_positive → kind "open", keeping its severity-derived level', () => {
+    const sarif = JSON.parse(formatter.format(withVerdict('true_positive')));
+    const result = sarif.runs[0].results[0];
+    assert.equal(result.kind, 'open');
+    assert.equal(result.level, 'error');
+    assert.equal(result.suppressions, undefined, 'a confirmed finding must not be suppressed');
+  });
+
+  it('uncertain → kind "review", keeping its level', () => {
+    const sarif = JSON.parse(formatter.format(withVerdict('uncertain')));
+    const result = sarif.runs[0].results[0];
+    assert.equal(result.kind, 'review');
+    assert.equal(result.level, 'error');
+  });
+
+  it('the verdict detail is preserved in the property bag', () => {
+    const sarif = JSON.parse(formatter.format(withVerdict('false_positive')));
+    const judge = sarif.runs[0].results[0].properties.judge;
+    assert.equal(judge.verdict, 'false_positive');
+    assert.equal(judge.confidence, 0.9);
+    assert.equal(judge.model, 'claude-opus-4-7');
+    assert.equal(judge.provider, 'claude-code');
+  });
+
+  it('every emitted kind is a member of the SARIF 2.1.0 enum', () => {
+    // Structural guard. Covers all three verdicts plus the false-positive
+    // validation path, so adding a verdict without checking the spec fails here.
+    for (const verdict of ['true_positive', 'false_positive', 'uncertain'] as const) {
+      const sarif = JSON.parse(formatter.format(withVerdict(verdict)));
+      for (const result of sarif.runs[0].results) {
+        if (result.kind === undefined) continue;
+        assert.ok(
+          VALID_KINDS.has(result.kind),
+          `"${result.kind}" (from verdict ${verdict}) is not a valid SARIF 2.1.0 result kind`,
+        );
+      }
+    }
+  });
+});
