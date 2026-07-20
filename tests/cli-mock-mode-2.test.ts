@@ -1024,15 +1024,31 @@ describe('CLI mock mode: matchCriteria and priority (issue #122)', () => {
 describe('CLI: retry on transient provider failures', () => {
   afterEach(cleanupOutput);
 
+  it('does NOT retry by default — a single transient failure errors the check', async () => {
+    // Retry is opt-in. Without --retry-max-attempts (or its env/config
+    // equivalents) one transient 503 must surface as ERROR, exactly as it did
+    // before retry existed. This is the backwards-compatibility guarantee: if
+    // it ever starts passing, retry has silently become on-by-default again.
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+      AGHAST_MOCK_FAIL_TIMES: '1',
+    });
+    assert.equal(exitCode, 0, 'scan completes; the check itself carries the error');
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'ERROR', 'retry must be off unless configured');
+  });
+
   it('recovers when the provider fails fewer times than the retry budget', async () => {
     // AGHAST_MOCK_FAIL_TIMES makes the mock throw a 503 for its first N calls.
-    // Two failures against a default budget of three attempts must still PASS —
-    // this is the whole point of the feature, and it cannot be observed from
-    // unit tests of withRetry alone.
+    // Two failures against an opted-in budget of three attempts must still
+    // PASS — this is the whole point of the feature, and it cannot be observed
+    // from unit tests of withRetry alone.
     const { exitCode } = await runCLI({
       AGHAST_MOCK_AI: 'true',
       AGHAST_MOCK_FAIL_TIMES: '2',
-    });
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--retry-max-attempts', '3']);
     assert.equal(exitCode, 0);
 
     const results = await readResults();
@@ -1046,11 +1062,26 @@ describe('CLI: retry on transient provider failures', () => {
     const { exitCode } = await runCLI({
       AGHAST_MOCK_AI: 'true',
       AGHAST_MOCK_FAIL_TIMES: '5',
-    });
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--retry-max-attempts', '3']);
     assert.equal(exitCode, 0, 'scan completes; the check itself carries the error');
 
     const results = await readResults();
     const checks = results.checks as Array<Record<string, unknown>>;
     assert.equal(checks[0].status, 'ERROR');
+  });
+
+  it('enables retry via AGHAST_RETRY_MAX_ATTEMPTS', async () => {
+    // Same recovery as above, but opted in through the env var rather than the
+    // flag, pinning the documented precedence path.
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+      AGHAST_MOCK_FAIL_TIMES: '2',
+      AGHAST_RETRY_MAX_ATTEMPTS: '3',
+    });
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'PASS', 'env var should enable retry');
   });
 });

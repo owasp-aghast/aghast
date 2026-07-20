@@ -522,6 +522,12 @@ jobs:
         run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public
 
       - name: Run regression test (test-9, SARIF false-positive validation, with retry)
+        # Retry is opt-in since it was made off-by-default; this job drives a
+        # live free-tier LLM, so it opts in explicitly. Without this the only
+        # safety net is the shell-level `||` re-runs below, which re-spend the
+        # whole scan rather than the one failed call.
+        env:
+          AGHAST_RETRY_MAX_ATTEMPTS: '3'
         run: |
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-9-sast-false-positives --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-9-sast-false-positives --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
@@ -563,6 +569,10 @@ jobs:
         run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public
 
       - name: Run regression test (test-2, targeted Semgrep+AI, with retry)
+        # See the test-9 job: retry is opt-in, and this job drives a live
+        # free-tier LLM that fails transiently.
+        env:
+          AGHAST_RETRY_MAX_ATTEMPTS: '3'
         run: |
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
           npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
