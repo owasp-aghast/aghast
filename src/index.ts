@@ -97,7 +97,14 @@ async function createMockProvider(): Promise<AgentProvider> {
     }
   }
 
-  const provider = new MockAgentProvider({ rawResponse, tokenUsage });
+  // Test hook: AGHAST_MOCK_FAIL_TIMES=<n> makes the mock fail its first n calls
+  // with a retryable (503) error before succeeding, so retry behaviour can be
+  // exercised end-to-end through the real CLI.
+  const failTimesRaw = process.env.AGHAST_MOCK_FAIL_TIMES;
+  const parsedFailTimes = failTimesRaw ? Number(failTimesRaw) : 0;
+  const failTimes = Number.isInteger(parsedFailTimes) && parsedFailTimes > 0 ? parsedFailTimes : 0;
+
+  const provider = new MockAgentProvider({ rawResponse, tokenUsage, failTimes });
   await provider.initialize({});
   return provider;
 }
@@ -988,6 +995,8 @@ export async function runScan(args: string[]): Promise<void> {
       // fall back to the env var for providers without the concept (e.g. mock).
       isLocalClaude: provider?.isLocalMode?.() ?? (process.env.AGHAST_LOCAL_CLAUDE === 'true'),
       judge: judgeOptions,
+      // Undefined when absent, which leaves the scan runner on its defaults.
+      retry: runtimeConfig.retry,
     };
     const outcome = await runMultiScanWithCost(scanOptions);
     const results = outcome.results;

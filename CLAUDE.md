@@ -118,6 +118,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_MOCK_JUDGE` — Enables mock judge provider. Set to `true` for default `true_positive` response, or set to a file path
 - `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
 - `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
+- `AGHAST_MOCK_FAIL_TIMES` — Makes the mock agent provider fail its first N calls with a retryable (503) error before succeeding, so retry behaviour can be exercised end-to-end through the real CLI
 - `AGHAST_MOCK_LOCAL_LOGIN` — Test hook for the Claude Code provider's local-login probe: `true` reports a logged-in session, `false` reports not-logged-in, both without spawning the agent SDK (keeps CLI auth tests hermetic)
 - `AGHAST_MOCK_CLAUDE_MODELS` — Test hook for the Claude Code provider's supported-model list: comma-separated model IDs, used to keep CLI model-validation tests hermetic
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
@@ -183,6 +184,7 @@ listed instead of its contents.
 - `src/provider-registry.ts` + `src/*-provider.ts` — Agent providers (`claude-code-provider.ts`, `opencode-provider.ts`, `mock-agent-provider.ts`); `provider-utils.ts` holds the shared OUTPUT_SCHEMA
 - `src/diff-filter.ts` — Diff filter (`applyDiffFilter`), applied post-discovery whenever a diff source exists and the check hasn't opted out via `checkTarget.diffFilter: false`. Narrows targets using the OpenAnt call graph (depth-1), falling back to file+line overlap (depth-0) when OpenAnt is unavailable. Supported by `diff-parser.ts` and `diff-unit-matcher.ts`
 - `src/*-runner.ts` — External tool execution with mock support (semgrep, opengrep, openant). `semgrep-runner.ts` exports the shared `runSarifScanner`/`verifySarifScannerInstalled` helpers that `opengrep-runner.ts` delegates to
+- `src/retry.ts` — Retry with exponential backoff and jitter (`withRetry`), a shared per-scan `CircuitBreaker`, and `defaultIsRetryable`. Errors already classified terminal (`FatalProviderError`, `BudgetExceededError`) are never retried, even though their messages mention rate limits
 - `src/cost-calculator.ts`, `src/budget.ts`, `src/scan-history.ts` — Cost/budget subsystem: token→USD estimation from `config/pricing.json`, per-scan and per-period limits, and persisted history at `~/.aghast/history.json`
 - `src/result-handlers/` — Post-scan delivery of findings to external systems. Currently `pr-comment-handler.ts` (GitHub PR inline review comments, spec E.7 Phase 1); issue trackers and notifications are the intended future siblings
 

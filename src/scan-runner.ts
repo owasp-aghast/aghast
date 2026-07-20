@@ -40,6 +40,7 @@ import {
   type ScanSummary,
   type TokenUsage,
   type ValidationRecord,
+  type AgentResponse,
 } from './types.js';
 import type { PricingConfig, CostBreakdown } from './cost-calculator.js';
 import { BudgetExceededError, type BudgetLimits } from './budget.js';
@@ -47,6 +48,7 @@ import type { ScanRecord } from './scan-history.js';
 import { collectCIMetadata } from './ci-metadata.js';
 import { type ScanCostTracker, createCostTracker, recordUsage, preflightBudget } from './cost-tracker.js';
 import { type AbortHandle, mapWithConcurrency } from './concurrency.js';
+import { withRetry, defaultIsRetryable, CircuitBreaker, DEFAULT_RETRY, type RetryOptions } from './retry.js';
 import { type JudgeOptions, runJudge, applyJudgeResults } from './judge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,6 +57,11 @@ const DEFAULT_CONCURRENCY = 5;
 // Per-target AI call timeout. Without this, a single hung provider request stalls
 // the worker indefinitely; with concurrency=N hangs, the entire check freezes.
 const DEFAULT_TARGET_TIMEOUT_MS = 5 * 60 * 1000;
+// Consecutive transient failures across the whole scan before we stop retrying.
+// Scan-wide rather than per-target: if the provider is failing repeatedly,
+// every remaining target will fail too, and retrying each one wastes both
+// wall-clock time and quota.
+const DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5;
 
 // --- Register built-in discovery implementations ---
 registerDiscovery(semgrepDiscovery);
@@ -183,9 +190,21 @@ async function getVersion(): Promise<string> {
 }
 
 
+/** Scan-level resilience settings. Omit for the defaults. */
+export interface ScanRetryOptions extends Partial<RetryOptions> {
+  /**
+   * Consecutive transient failures across the whole scan before retrying stops.
+   * The breaker is shared by every check and target, so this counts failures
+   * anywhere, not per target.
+   */
+  circuitBreakerThreshold?: number;
+}
+
 export interface MultiScanOptions {
   repositoryPath: string;
   checks: Array<{ check: SecurityCheck; details: CheckDetails }>;
+  /** Retry/backoff settings for transient provider failures. */
+  retry?: ScanRetryOptions;
   agentProvider?: AgentProvider;
   modelName?: string;
   agentProviderName?: string;
@@ -434,6 +453,7 @@ async function executeSingleCheck(
   diffRef?: string,
   diffFile?: string,
   openantAvailable: boolean = true,
+  resilience?: { retry: RetryOptions; breaker?: CircuitBreaker },
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
 
@@ -456,6 +476,7 @@ async function executeSingleCheck(
       diffRef,
       diffFile,
       openantAvailable,
+      resilience,
     );
   }
 
@@ -469,6 +490,9 @@ async function executeSingleCheck(
     throw new Error(`Check "${checkId}" requires an agent provider but none was configured`);
   }
 
+  const retryConfig = resilience?.retry ?? DEFAULT_RETRY;
+  const breaker = resilience?.breaker;
+
   logProgress(TAG, `Running check: ${checkName}`);
 
   const prompt = await buildPrompt(checkInstructions, configDir, genericPrompt);
@@ -481,7 +505,12 @@ async function executeSingleCheck(
 
   try {
     preflightBudget(costTracker);
-    const agentResponse = await agentProvider.executeCheck(prompt, repositoryPath);
+    // Repository checks retry on the same terms as targeted ones — a transient
+    // provider failure should not turn a whole-repo check into an ERROR.
+    const agentResponse = await withRetry(
+      () => agentProvider.executeCheck(prompt, repositoryPath),
+      { ...retryConfig, breaker, label: checkId },
+    );
     const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
     recordUsage(costTracker, agentResponse.tokenUsage, model);
     const executionTime = checkTimer.elapsed();
@@ -579,9 +608,14 @@ async function executeTargetedCheck(
   diffRef?: string,
   diffFile?: string,
   openantAvailable: boolean = true,
+  // Bundled rather than two more positional parameters — this signature is
+  // already long enough that another pair would be easy to mis-order.
+  resilience?: { retry: RetryOptions; breaker?: CircuitBreaker },
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
   const checkTarget = check.checkTarget!;
+  const retryConfig = resilience?.retry ?? DEFAULT_RETRY;
+  const breaker = resilience?.breaker;
 
   const discoveryName = checkTarget.discovery;
   if (!discoveryName) {
@@ -704,24 +738,41 @@ async function executeTargetedCheck(
           const prompt = basePrompt + (target.promptEnrichment ?? '');
 
           logDebug(TAG, `${target.label} Analyzing: ${target.file}:${target.startLine}-${target.endLine}`);
-          let timeoutHandle: NodeJS.Timeout | undefined;
-          const agentResponse = await Promise.race([
-            agentProvider.executeCheck(
-              prompt,
-              repositoryPath,
-              target.label,
-              target.agentOptions,
-            ),
-            new Promise<never>((_, reject) => {
-              timeoutHandle = setTimeout(
-                () => reject(new Error(
-                  `Agent provider timed out after ${DEFAULT_TARGET_TIMEOUT_MS / 1000}s on target ${target.label}`,
-                )),
-                DEFAULT_TARGET_TIMEOUT_MS,
-              );
-            }),
-          ]).finally(() => {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
+
+          // One attempt: the provider call raced against a per-target timeout.
+          // Declared as a function so each retry gets a fresh timer — reusing a
+          // single handle across attempts would leave the first attempt's
+          // timeout armed and abort a later, healthy one.
+          const analyzeOnce = async (): Promise<AgentResponse> => {
+            let timeoutHandle: NodeJS.Timeout | undefined;
+            return Promise.race([
+              agentProvider.executeCheck(
+                prompt,
+                repositoryPath,
+                target.label,
+                target.agentOptions,
+              ),
+              new Promise<never>((_, reject) => {
+                timeoutHandle = setTimeout(
+                  () => reject(new Error(
+                    `Agent provider timed out after ${DEFAULT_TARGET_TIMEOUT_MS / 1000}s on target ${target.label}`,
+                  )),
+                  DEFAULT_TARGET_TIMEOUT_MS,
+                );
+              }),
+            ]).finally(() => {
+              if (timeoutHandle) clearTimeout(timeoutHandle);
+            });
+          };
+
+          const agentResponse = await withRetry(analyzeOnce, {
+            ...retryConfig,
+            breaker,
+            label: target.label,
+            // Stop retrying the moment another worker has aborted the scan
+            // (budget exceeded, or a fatal provider error). Without this a
+            // long backoff would keep a doomed scan alive.
+            isRetryable: (err) => !abortHandle.aborted && defaultIsRetryable(err),
           });
           const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
           recordUsage(costTracker, agentResponse.tokenUsage, model);
@@ -1072,6 +1123,16 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
 export async function runMultiScanWithCost(options: MultiScanOptions): Promise<MultiScanOutcome> {
   const { repositoryPath, checks, agentProvider, modelName, agentProviderName, concurrency, configDir, genericPrompt, diffRef, diffFile } = options;
   const openantAvailable = options.openantAvailable ?? true;
+
+  // Resilience is scan-scoped. One breaker is shared across every check and
+  // every target, so N consecutive transient failures anywhere stop the scan
+  // retrying rather than each target independently burning its own attempts
+  // against a provider that is plainly unwell.
+  const retryOptions: RetryOptions = { ...DEFAULT_RETRY, ...options.retry };
+  const scanBreaker = new CircuitBreaker({
+    threshold: options.retry?.circuitBreakerThreshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
+  });
+
   const scanTimer = createTimer();
   const scanId = generateScanId();
   const startTime = new Date();
@@ -1136,6 +1197,7 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
         diffRef,
         diffFile,
         openantAvailable,
+        { retry: retryOptions, breaker: scanBreaker },
       );
 
       allCheckSummaries.push(checkSummary);
