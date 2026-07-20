@@ -307,6 +307,104 @@ The `discovery` field on `checkTarget` specifies how targets are found for `targ
 | `glob` | None | Walks the repository and selects whole-file targets matching a glob pattern (e.g. `src/routes/**/*.ts`). Targeted checks only. Always skips: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `dist`, `build`, `.next`, `.nuxt`, `.cache`, `.idea`, `.vscode`. Files larger than 10 MiB and symlinks are also skipped | No |
 | `script` | None (script must be node or bash) | Runs a user-provided discovery script in the repo and parses its stdout into targets. Runs with `shell: false`, a curated environment with secrets stripped, a hard timeout and a bounded stdout. Script and output paths must resolve inside the repo, symlinks included | No |
 
+### Script discovery
+
+Use `script` discovery when target selection is too custom for the other
+methods — parsing an OpenAPI spec, walking a build manifest, querying a schema
+artifact. aghast runs your script and turns its stdout into targets.
+
+> **Trust model — read this before enabling a script check.**
+>
+> **Scripts run with the full privileges of the aghast process and are not
+> sandboxed.** Treat any script referenced by a check definition as trusted
+> code: only enable script-discovery checks whose script you or your team have
+> read and audited. The measures below are defence-in-depth against mistakes and
+> against a compromised *check definition* — they are not a sandbox, and they do
+> not make an untrusted script safe to run.
+>
+> What aghast does enforce:
+>
+> - **Path containment.** The script path must resolve inside the check folder
+>   (or the repo). Both it and `cwd` are `realpath`'d and re-checked, so a
+>   symlink pointing outside cannot be used to execute external code.
+> - **No shell.** Spawned with `shell: false` and array arguments, so no field
+>   in a check definition can inject a command.
+> - **Curated environment.** Only a small allow-list of neutral variables is
+>   forwarded (`PATH`, `HOME`, locale, temp dirs, Windows essentials). Anything
+>   matching a secret pattern is dropped as well — `*_KEY`, `*_TOKEN`,
+>   `*_SECRET`, `*_PASSWORD`, and the `ANTHROPIC_`, `OPENAI_`, `GITHUB_`,
+>   `AGHAST_`, `AWS_`, `GCP_`, `AZURE_` prefixes. **Your script will not see the
+>   API key**, by design.
+> - **Bounded.** Hard timeout (default 30s), stdout capped at 8 MiB, stderr at
+>   1 MiB, and at most 100,000 parsed targets.
+> - **Output is data.** Parsed as lines or JSON, never `eval`-ed. File paths the
+>   script returns are validated as relative and inside the repo before reaching
+>   the AI prompt or the snippet extractor.
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `checkTarget.script` | `string` | Yes | Path to the script, relative to the check folder. Must resolve inside it |
+| `checkTarget.scriptType` | `string` | Yes | `node` or `bash`. `bash` is **not supported on Windows** — aghast raises a clear error rather than silently falling back |
+| `checkTarget.outputFormat` | `string` | Yes | `lines`, `json-array`, or `json-object` — see below |
+| `checkTarget.cwd` | `string` | No | Working directory for the script, relative to the repo root (default: the repo root). Must resolve inside the repo |
+| `checkTarget.timeoutMs` | `number` | No | Kill the script after this many milliseconds (default: `30000`) |
+
+#### Output formats
+
+**`lines`** — one repo-relative file path per line. Blank lines are ignored.
+The simplest option when you only need to select whole files:
+
+```
+src/routes/users.ts
+src/routes/orders.ts
+```
+
+**`json-array`** — a JSON array of target objects at the root:
+
+```json
+[
+  { "file": "src/routes/users.ts", "startLine": 10, "endLine": 42, "message": "POST handler" }
+]
+```
+
+**`json-object`** — the same objects under a `targets` key, for scripts that
+want to emit metadata alongside:
+
+```json
+{ "targets": [ { "file": "src/routes/users.ts", "startLine": 10, "endLine": 42 } ] }
+```
+
+Target object fields — only `file` is required:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file` | `string` | Repo-relative path. Must not be absolute or escape the repo |
+| `startLine` | `number` | Start of the region of interest (default: whole file) |
+| `endLine` | `number` | End of the region |
+| `message` | `string` | Passed to the AI as context for why this target was selected |
+| `snippet` | `string` | Code to show the AI instead of reading the file |
+
+A non-zero exit status fails the check. Write diagnostics to stderr — stdout is
+parsed as target output.
+
+#### Example
+
+```json
+{
+  "name": "API route review",
+  "checkType": "targeted",
+  "checkTarget": {
+    "discovery": "script",
+    "script": "find-routes.js",
+    "scriptType": "node",
+    "outputFormat": "json-array",
+    "timeoutMs": 60000
+  }
+}
+```
+
 ### Diff filtering
 
 Diff filtering narrows a SARIF-producing discovery's output to findings touching code in a git diff. A finding is "in scope" if it overlaps a code unit directly changed by the diff, or is a direct caller or callee of a changed unit (using OpenAnt's call graph). Findings in files OpenAnt can't parse (config files, templates) are kept if the file itself appears in the diff.

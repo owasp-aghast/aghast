@@ -153,6 +153,42 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 - **Markdown** - human-readable report for pasting into a PR, ticket or wiki. Sections: header, executive summary, per-check status table, detailed findings with fenced code snippets (language tag inferred from file extension), flagged items, errors, judge verdicts, statistics (including estimated cost), and CI metadata when the scan ran in CI. All user-controlled text is escaped so findings cannot break out of tables or inject markup.
 - **HTML** - self-contained interactive report with inline CSS/JS and the full `ScanResults` embedded as a JSON island. Includes filterable issues table, severity/status badges, expandable per-check sections, code snippets, and stat tiles for estimated cost and judge verdicts when available. No external resources, so the file can be emailed or hosted as-is.
 
+### One file per finding
+
+Alongside the main report, aghast can write a separate file for each issue —
+useful when findings are handed to different owners, tracked individually, or
+fed into a system that expects one document per item.
+
+Enable it in `runtime-config.json` (there is no CLI flag):
+
+```jsonc
+{
+  "reporting": {
+    "includeIndividualIssueFiles": true,
+    "individualIssueFormat": "markdown"   // or "json" / "html"
+  }
+}
+```
+
+Files are written next to the main report, grouped by check:
+
+```
+security_issues_<project>/
+  aghast-sql-injection/
+    issue_001_users.ts.md
+    issue_002_orders.ts.md
+  aghast-xss/
+    issue_001_render.tsx.md
+```
+
+Numbering restarts at `001` within each check. Each run first removes
+`issue_<NNN>_*` files left by the previous run, so a scan with fewer findings
+does not leave stale ones behind looking current — anything else you keep in
+those directories is left alone.
+
+The main report is unaffected: this is purely additional output, and the feature
+is off unless you switch it on.
+
 ### Cost and judge verdicts in reports
 
 Estimated scan cost appears in the JSON, Markdown and HTML reports (in Markdown
