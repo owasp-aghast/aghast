@@ -427,6 +427,30 @@ If OpenAnt is not installed, the diff filter falls back to file/line overlap onl
 
 The checks in `checks-config.json` include a `repositories` field that limits which repos each check runs against. To run the example checks against your own repository, add your repo's path or remote URL to the `repositories` array for the relevant check, or set it to an empty array `[]` to match all repositories. See the [Configuration Reference](configuration.md) for details.
 
+### Second-guessing the results: the LLM judge
+
+Any of the scans above can be re-run with a second model reviewing the findings.
+Add `--judge-model` to the same command:
+
+```bash
+node --import tsx src/cli.ts scan <repo-path> --config-dir checks-config \
+  --judge-model claude-opus-4-7
+```
+
+Each issue gains a verdict — `true_positive`, `false_positive` or `uncertain` —
+with a confidence score and the judge's reasoning. Nothing is removed by
+default, so you can compare the verdicts against your own read of the findings
+before deciding to trust them.
+
+Once you do trust them, `--judge-drop-false-positives` removes the dismissed
+findings from the report, which can flip a check from FAIL to PASS. `uncertain`
+verdicts escalate the check to FLAG rather than being silently accepted.
+
+This is the highest-leverage option to try on a check that produces findings you
+suspect are noise. It is not free — it costs one extra AI call per issue, so see
+[Cost Tracking](cost-tracking.md#the-judge-stage-costs-extra) before turning it
+on for a large scan.
+
 ## What's next
 
 - [Scanning](scanning.md) - all scan options, output formats, and environment variables

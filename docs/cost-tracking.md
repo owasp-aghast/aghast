@@ -196,6 +196,34 @@ merge blocker.
 
 ---
 
+## The judge stage costs extra
+
+The [LLM judge](scanning.md#llm-judge-stage) makes **one additional AI call per
+issue found**, and those calls go through the same accounting as check analysis:
+they count towards the scan total, appear in `aghast stats`, and are checked
+against your budget limits before each call.
+
+Two consequences worth planning for:
+
+- **Judge cost scales with findings, not with checks.** A scan producing 3 issues
+  adds 3 judge calls; one producing 200 adds 200. A noisy check set is
+  disproportionately more expensive to judge than a quiet one.
+- **Use a cheaper judge model if cost matters.** `--judge-model` is independent
+  of `--model`, so the judge can run on a smaller model than the scan. Judging is
+  a narrower task than discovery — it re-evaluates a single finding with its
+  snippet and the check's instructions.
+
+To exclude a specific check's findings from judging entirely, set
+`"judge": false` on its Layer 1 entry — useful for a high-volume check whose
+findings you already trust.
+
+A budget abort during judging stops the stage but still writes the report;
+issues judged before the abort keep their verdicts, and the rest have no `judge`
+field.
+
+Retry, when [enabled](configuration.md#retry-and-resilience), covers judge calls
+too — so a retried judge call spends more than one call's worth of tokens.
+
 ## What is *not* counted
 
 - Semgrep and OpenAnt compute time (CPU / CI minutes)
