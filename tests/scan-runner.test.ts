@@ -9,6 +9,7 @@ import {
   sumTokenUsage,
 } from '../src/scan-runner.js';
 import { getRegisteredDiscoveries, registerDiscovery, unregisterDiscovery } from '../src/discovery.js';
+import { DEFAULT_RETRY } from '../src/retry.js';
 import type { SecurityCheck, CheckDetails } from '../src/types.js';
 import type { AgentProvider, AgentResponse, CheckResponse } from '../src/types.js';
 import { FatalProviderError } from '../src/types.js';
@@ -1239,7 +1240,15 @@ describe('runMultiScan (FLAG status)', () => {
       async validateConfig() { return true; },
       async executeCheck(_instructions: string, _repositoryPath: string) {
         const n = callCount++;
-        if (n === 0) throw new Error('Agent provider request timed out after 60000ms');
+        // Fail for the first check's full retry budget (3 attempts) rather than
+        // once. A "timed out" message is classified retryable, so a single
+        // failure is now recovered — which is the point of retry, but would
+        // make this test assert nothing. Exhausting the budget keeps the
+        // original subject intact: a check that genuinely ERRORs must not stop
+        // the checks after it from running.
+        if (n < DEFAULT_RETRY.maxAttempts) {
+          throw new Error('Agent provider request timed out after 60000ms');
+        }
         const response = { issues: [] };
         return { raw: JSON.stringify(response), parsed: response };
       },
@@ -1252,6 +1261,8 @@ describe('runMultiScan (FLAG status)', () => {
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
       agentProvider: mixedProvider,
+      // Keep the backoff out of the test's wall-clock time.
+      retry: { baseDelayMs: 1, maxDelayMs: 1 },
     });
 
     assert.equal(results.checks.length, 2);
@@ -1655,7 +1666,13 @@ describe('runMultiScan (fatal error abort)', () => {
       async validateConfig() { return true; },
       async executeCheck() {
         const n = callCount++;
-        if (n === 0) throw new Error('Agent provider request timed out after 60000ms');
+        // Exhaust the first check's retry budget — see the note on the
+        // "provider throws → ERROR" test above. A single retryable failure is
+        // now recovered, so failing once would no longer produce an ERROR to
+        // regress against.
+        if (n < DEFAULT_RETRY.maxAttempts) {
+          throw new Error('Agent provider request timed out after 60000ms');
+        }
         const response = { issues: [] };
         return { raw: JSON.stringify(response), parsed: response };
       },
@@ -1668,12 +1685,22 @@ describe('runMultiScan (fatal error abort)', () => {
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
       agentProvider: mixedProvider,
+      retry: { baseDelayMs: 1, maxDelayMs: 1 },
     });
 
     assert.equal(results.checks.length, 2);
     assert.equal(results.checks[0].status, 'ERROR');
     assert.equal(results.checks[1].status, 'PASS');
-    assert.equal(callCount, 2, 'Provider should be called for both checks');
+    // Check one exhausts its retry budget, then check two succeeds on one call.
+    // The statuses above are what this test is really about — that a failing
+    // check does not stop the next one — but the call count is worth pinning
+    // too, since a regression that skipped the second check entirely would
+    // otherwise still satisfy the status assertions.
+    assert.equal(
+      callCount,
+      DEFAULT_RETRY.maxAttempts + 1,
+      'check one should use its full retry budget, then check two runs once',
+    );
   });
 
   it('FatalProviderError on first check aborts all remaining', async () => {

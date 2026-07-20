@@ -313,6 +313,17 @@ If no diff source is set, checks run full-repo as usual — no filter, no error.
 
 Diff filtering uses OpenAnt for the call graph (depth-1 mode). If OpenAnt isn't installed and no `AGHAST_OPENANT_DATASET` is provided, the filter falls back to **depth-0 mode** — keep only findings whose file and line range overlap a diff hunk, no call-graph flow. aghast logs a clear warning when this happens so the mode is visible. Install OpenAnt (or supply a prebuilt dataset) to enable depth-1 filtering with caller/callee adjacency. Useful in PR/CI pipelines to focus analysis on changed code. See [Scanning → CI usage](scanning.md#ci-usage--diff-scoped-scans-on-prs) for GitHub Actions / GitLab CI recipes.
 
+### Retry and resilience
+
+Transient provider failures — a dropped stream, a 5xx, a network reset — are retried with exponential backoff and jitter rather than failing the check outright. Defaults are three attempts starting at a one second delay.
+
+Errors that have already been classified as terminal are **never** retried, regardless of these settings:
+
+- `FatalProviderError` — quota exhaustion and authentication failures. The provider raises this for messages like *"you've hit your limit"*; a subscription limit resets on a schedule, not in seconds, so retrying only burns the remaining attempts.
+- Budget aborts — the scan has spent what it was allowed to spend.
+
+A single circuit breaker is shared across the whole scan. Once `retry.circuitBreakerThreshold` consecutive transient failures have occurred anywhere, retrying stops for the remainder of the run: if the provider is failing repeatedly then every remaining target will fail too, and retrying each one wastes both wall-clock time and quota.
+
 ## Check Instructions (`<id>.md`)
 
 The markdown file contains instructions for the AI. It is prepended with a generic prompt template before being sent. A typical structure:
@@ -435,6 +446,10 @@ The built-in `config/pricing.json` provides per-million-token rates for the defa
 | `budget.perPeriod.maxCostUsd`   | `number`   | (none) | Abort when total cost across the period (history + current scan) exceeds this USD value |
 | `budget.thresholds.warnAt`      | `number`   | `0.8` | Fraction of a limit at which a warning is logged (0.0–1.0) |
 | `budget.thresholds.abortAt`     | `number`   | `1.0` | Fraction of a limit at which the scan aborts (0.0–1.0) |
+| `retry.maxAttempts`             | `number`   | `3` | Total attempts per AI call, including the first. Applies to transient provider failures only |
+| `retry.baseDelayMs`             | `number`   | `1000` | Initial backoff before jitter |
+| `retry.maxDelayMs`              | `number`   | `16000` | Cap on backoff before jitter |
+| `retry.circuitBreakerThreshold` | `number`   | `5` | Consecutive transient failures across the whole scan before retrying stops. Shared by every check and target |
 | `pricing.currency`              | `string`   | `USD` | Currency for cost estimates |
 | `pricing.models`                | `object`   | (built-in) | Per-model overrides: `{ "<model>": { "inputPerMillion": <usd>, "outputPerMillion": <usd> } }`. Merges with built-in defaults |
 

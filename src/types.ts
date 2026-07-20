@@ -471,8 +471,32 @@ export interface RuntimeConfig {
   diffRef?: string;
   budget?: RuntimeBudgetConfig;
   pricing?: RuntimePricingConfig;
+  /** Retry behaviour for transient provider failures. Omit for the defaults. */
+  retry?: RuntimeRetryConfig;
   /** LLM judge stage configuration. Setting judge.model enables the stage. */
   judge?: RuntimeJudgeConfig;
+}
+
+/**
+ * Retry settings for transient provider failures.
+ *
+ * Applies only to errors the system has not already classified as terminal:
+ * `FatalProviderError` (quota exhausted, auth failure) and budget aborts are
+ * never retried regardless of these values, because retrying them cannot help.
+ */
+export interface RuntimeRetryConfig {
+  /** Total attempts including the first (default: 3). */
+  maxAttempts?: number;
+  /** Initial backoff in ms before jitter (default: 1000). */
+  baseDelayMs?: number;
+  /** Cap on backoff in ms before jitter (default: 16000). */
+  maxDelayMs?: number;
+  /**
+   * Consecutive transient failures across the whole scan before retrying
+   * stops (default: 5). Shared by every check and target, so this counts
+   * failures anywhere rather than per target.
+   */
+  circuitBreakerThreshold?: number;
 }
 
 // --- A.6 Aggregated Report ---
