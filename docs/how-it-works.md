@@ -183,6 +183,10 @@ Discovery methods are deterministic: they use static analysis or pre-existing re
 - **Opengrep**: identical to Semgrep discovery but runs the Opengrep binary (a Semgrep fork). Use this when you prefer Opengrep for licensing or tooling reasons — the rule syntax and SARIF output are the same.
 - **OpenAnt**: runs [OpenAnt](https://github.com/knostic/OpenAnt/) to extract individual code units (functions, classes) with call graph context (who calls this function, what does it call).
 - **SARIF**: reads findings from an external SARIF file (e.g., output from another SAST scanner) and feeds each finding to the AI.
+- **Glob**: selects whole files by path pattern (e.g. `src/routes/**/*.ts`), with no scanner required. Use it when "every file in this directory" is the right unit of review — route handlers, migrations, IaC templates.
+- **Script**: runs a `node` or `bash` script you supply and turns its stdout into targets. The escape hatch for enumeration that none of the above express — parsing an OpenAPI spec, walking a build manifest, querying a schema artifact.
+
+Glob and Script select code directly rather than producing findings to narrow, so neither supports diff filtering; checks using them run over their full target set even during a diff-scoped scan.
 
 #### Diff filtering: narrowing a discovery to changed code
 

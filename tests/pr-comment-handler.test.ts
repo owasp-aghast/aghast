@@ -383,3 +383,48 @@ describe('postPRComments', () => {
     assert.ok(postCall, 'should still post the review when dedup listing fails');
   });
 });
+
+// ─── Inline comment cap ──────────────────────────────────────────────────────
+
+describe('postPRComments: caps inline comments per review', () => {
+  const ctx = { owner: 'octo', repo: 'demo', prNumber: 42 };
+
+  // One file with a large added hunk, so every issue lands inside the diff.
+  const bigPatch = ['@@ -1,1 +1,60 @@', ' a', ...Array.from({ length: 59 }, (_, i) => `+line ${i + 2}`)].join('\n');
+  const filesPayload: PullRequestFile[] = [
+    { filename: 'src/db.ts', status: 'modified', patch: bigPatch },
+  ];
+
+  it('posts at most maxComments and reports the remainder in the review body', async () => {
+    const { executor, calls } = makeFakeExecutor({
+      responses: [{ match: /pulls\/42\/files/, body: filesPayload }],
+    });
+    // 10 in-diff findings, cap of 4.
+    const issues = Array.from({ length: 10 }, (_, i) =>
+      makeIssue({ file: 'src/db.ts', startLine: i + 2, description: `finding ${i}` }),
+    );
+
+    const result = await postPRComments(makeResults(issues), ctx, { executor, maxComments: 4 });
+
+    assert.equal(result.posted, 4, 'should post exactly the cap');
+    assert.equal(result.omitted, 6, 'should report the rest as omitted, not skipped');
+    assert.equal(result.skipped, 0, 'omitted findings are not "skipped" — they were eligible');
+
+    const postCall = calls.find((c) => c.args.includes('--method'));
+    assert.ok(postCall, 'should post a review');
+    const payload = JSON.parse(postCall.input as string) as { body: string; comments: unknown[] };
+    assert.equal(payload.comments.length, 4, 'payload must carry only the capped comments');
+    // The omission must be visible to a human reading the PR, not just in logs.
+    assert.match(payload.body, /6 further findings were not posted inline/);
+    assert.match(payload.body, /full scan report/);
+  });
+
+  it('omits the field entirely when nothing was capped', async () => {
+    const { executor } = makeFakeExecutor({
+      responses: [{ match: /pulls\/42\/files/, body: filesPayload }],
+    });
+    const issues = [makeIssue({ file: 'src/db.ts', startLine: 2 })];
+    const result = await postPRComments(makeResults(issues), ctx, { executor, maxComments: 50 });
+    assert.deepEqual(result, { posted: 1, skipped: 0 }, 'result shape must be unchanged when nothing is capped');
+  });
+});

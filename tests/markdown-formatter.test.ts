@@ -579,3 +579,66 @@ describe('MarkdownFormatter — escape edge cases', () => {
     assert.ok(md.includes('\\`code\\`'), 'backticks must be escaped');
   });
 });
+
+describe('MarkdownFormatter: cost and judge verdicts', () => {
+  const formatter = new MarkdownFormatter();
+
+  it('renders estimated cost in Statistics', () => {
+    const out = formatter.format(makeResults({
+      metadata: { cost: { totalCostUsd: 1.5, currency: 'USD' } },
+    }));
+    assert.match(out, /- \*\*Estimated cost:\*\* \$1\.50/);
+  });
+
+  it('shows sub-cent cost at four decimals rather than rounding to $0.00', () => {
+    const out = formatter.format(makeResults({
+      metadata: { cost: { totalCostUsd: 0.0023, currency: 'USD' } },
+    }));
+    assert.match(out, /\$0\.0023/, 'a tiny cost must not read as free');
+    assert.ok(!out.includes('$0.00 '), 'must not round a real cost to zero');
+  });
+
+  it('omits cost entirely when no pricing was available', () => {
+    const out = formatter.format(makeResults());
+    assert.ok(!out.includes('Estimated cost'), 'no cost section without cost metadata');
+  });
+
+  it('renders a Judge Verdicts section only when the judge ran', () => {
+    const without = formatter.format(makeResults());
+    assert.ok(!without.includes('## Judge Verdicts'), 'no judge section when the stage did not run');
+
+    const withJudge = formatter.format(makeResults({
+      summary: {
+        totalChecks: 1, passedChecks: 0, failedChecks: 1, flaggedChecks: 0,
+        errorChecks: 0, totalIssues: 3,
+        judgedIssues: 3, falsePositives: 1, uncertainJudgements: 1,
+      },
+    }));
+    assert.match(withJudge, /## Judge Verdicts/);
+    assert.match(withJudge, /- \*\*Issues judged:\*\* 3/);
+    assert.match(withJudge, /- \*\*Judged false positive:\*\* 1/);
+  });
+
+  it('renders a per-issue verdict and escapes the model-authored rationale', () => {
+    const out = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1,
+        description: 'x',
+        judge: {
+          verdict: 'true_positive', confidence: 0.85,
+          // Pipes and backticks would otherwise corrupt surrounding markdown.
+          rationale: 'Sees `raw` input | unsanitised',
+          model: 'claude-opus-4-7', provider: 'claude-code',
+        },
+      }],
+    }));
+    assert.match(out, /\*\*Verdict:\*\* true_positive \(85% confidence\)/);
+    // Built by concatenation so the backslash-backtick pair is unambiguous in
+    // source: the formatter emits \` for a backtick and \| for a pipe.
+    const bs = String.fromCharCode(92); // backslash
+    const tick = String.fromCharCode(96); // backtick
+    assert.ok(out.includes(bs + tick + 'raw' + bs + tick), 'backticks in rationale must be escaped');
+    assert.ok(out.includes(bs + '|'), 'pipes in rationale must be escaped');
+  });
+});

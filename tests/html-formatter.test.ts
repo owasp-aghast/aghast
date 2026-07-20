@@ -310,3 +310,73 @@ describe('escapeJsonForScriptTag', () => {
     assert.equal(parsed.x, original);
   });
 });
+
+describe('HtmlFormatter: cost and judge verdicts', () => {
+  const formatter = new HtmlFormatter();
+
+  it('renders an estimated-cost stat tile when cost metadata exists', () => {
+    const out = formatter.format(makeResults({
+      metadata: { cost: { totalCostUsd: 2.5, currency: 'USD' } },
+    }));
+    assert.ok(out.includes('Est. cost'), 'cost tile should be present');
+    assert.ok(out.includes('$2.50'), 'cost value should be rendered');
+  });
+
+  it('omits the cost tile when there is no cost metadata', () => {
+    const out = formatter.format(makeResults());
+    assert.ok(!out.includes('Est. cost'), 'no cost tile without cost metadata');
+  });
+
+  it('renders judge tiles only when the judge stage ran', () => {
+    const without = formatter.format(makeResults());
+    assert.ok(!without.includes('>Judged<'), 'no judge tile when the stage did not run');
+
+    const withJudge = formatter.format(makeResults({
+      summary: {
+        totalChecks: 1, passedChecks: 0, failedChecks: 1, flaggedChecks: 0,
+        errorChecks: 0, totalIssues: 2,
+        judgedIssues: 2, falsePositives: 1, uncertainJudgements: 0,
+      },
+    }));
+    assert.ok(withJudge.includes('>Judged<'), 'judge tile should appear');
+    assert.ok(withJudge.includes('False positives'), 'false-positive tile should appear');
+  });
+
+  it('adds a Verdict column only when at least one issue was judged', () => {
+    const unjudged = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{ checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1, description: 'x' }],
+    }));
+    assert.ok(!unjudged.includes('<th>Verdict</th>'), 'no empty Verdict column on an unjudged scan');
+
+    const judged = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1, description: 'x',
+        judge: {
+          verdict: 'false_positive', confidence: 0.9,
+          rationale: 'Validated upstream', model: 'm', provider: 'p',
+        },
+      }],
+    }));
+    assert.ok(judged.includes('<th>Verdict</th>'), 'Verdict column should appear');
+    assert.ok(judged.includes('false_positive'), 'verdict value should render');
+    assert.ok(judged.includes('90%'), 'confidence should render as a percentage');
+  });
+
+  it('escapes a malicious rationale in the verdict tooltip (XSS safety)', () => {
+    const out = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1, description: 'x',
+        judge: {
+          verdict: 'uncertain', confidence: 0.5,
+          rationale: '"><script>alert(1)</script>',
+          model: 'm', provider: 'p',
+        },
+      }],
+    }));
+    assert.ok(!out.includes('<script>alert(1)</script>'), 'rationale must not inject raw script markup');
+    assert.ok(out.includes('&lt;script&gt;'), 'rationale should be HTML-escaped');
+  });
+});

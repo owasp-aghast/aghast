@@ -75,6 +75,17 @@ the PR comment phase is non-fatal.
 > the same PR can each pass the marker check and produce duplicate comments.
 > Confine `--pr` to a single matrix job (or run after the matrix completes).
 
+At most 50 inline comments are posted per review. A noisy check against a large
+diff would otherwise be unreviewable, and a request that large risks being
+rejected outright — losing every comment rather than some. Any findings beyond
+the cap are named in the review summary and remain in full in the scan report.
+
+A complete, runnable workflow is in
+[`docs/examples/github-actions-pr-comments.yml`](examples/github-actions-pr-comments.yml).
+It covers the two settings most easily missed: the `pull-requests: write`
+permission, without which posting fails with `[E7201]`, and `fetch-depth: 0`,
+without which the base ref is unreachable and diff scoping silently does nothing.
+
 > **Phase 1 only.** Issue tracker creation, AI-assisted remediation, IDE/LSP
 > integration, and Slack/email notifications listed in Spec E.7 are deferred
 > to future iterations.
@@ -139,8 +150,31 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 - **JSON** (default) - structured results with summary, per-check details, issues, and token usage
 - **SARIF** - SARIF 2.1.0 output compatible with GitHub Code Scanning and other SARIF viewers
 - **CSV** - one row per issue (plus one row per `ERROR` check) for spreadsheet analysis. UTF-8 encoded, no BOM, RFC 4180 quoting, CRLF line endings. Descriptions are flattened to a single line and truncated to 500 chars. The structured `dataFlow` taint trace is omitted; use SARIF or JSON for the full trace.
-- **Markdown** - human-readable report for pasting into a PR, ticket or wiki. Sections: header, executive summary, per-check status table, detailed findings with fenced code snippets (language tag inferred from file extension), flagged items, errors, statistics, and CI metadata when the scan ran in CI. All user-controlled text is escaped so findings cannot break out of tables or inject markup.
-- **HTML** - self-contained interactive report with inline CSS/JS and the full `ScanResults` embedded as a JSON island. Includes filterable issues table, severity/status badges, expandable per-check sections, and code snippets. No external resources, so the file can be emailed or hosted as-is.
+- **Markdown** - human-readable report for pasting into a PR, ticket or wiki. Sections: header, executive summary, per-check status table, detailed findings with fenced code snippets (language tag inferred from file extension), flagged items, errors, judge verdicts, statistics (including estimated cost), and CI metadata when the scan ran in CI. All user-controlled text is escaped so findings cannot break out of tables or inject markup.
+- **HTML** - self-contained interactive report with inline CSS/JS and the full `ScanResults` embedded as a JSON island. Includes filterable issues table, severity/status badges, expandable per-check sections, code snippets, and stat tiles for estimated cost and judge verdicts when available. No external resources, so the file can be emailed or hosted as-is.
+
+### Cost and judge verdicts in reports
+
+Estimated scan cost appears in the JSON, Markdown and HTML reports (in Markdown
+under **Statistics**, in HTML as a stat tile). It is **not** a CSV column: cost is
+a single value for the whole run, so repeating it on every row would invite
+summing it and getting cost × issue-count.
+
+Judge verdicts, being per-issue, appear in every format:
+
+| Format | Where |
+|--------|-------|
+| JSON / SARIF | `issue.judge` object / result `kind` and `properties.judge` |
+| Markdown | a **Judge Verdicts** summary section, plus a verdict block per issue |
+| HTML | stat tiles, and a **Verdict** column added to the issues table |
+| CSV | `judgeVerdict`, `judgeConfidence`, `judgeRationale` columns |
+
+> **CSV consumers:** the three judge columns were appended to the end of the row
+> and are **always present**, empty when the judge did not run. Appending keeps
+> existing column indices valid; keeping them unconditional means the header
+> shape does not change with runtime configuration, which matters more for a
+> parser than a few empty cells. A consumer that asserts an exact column count
+> will need updating.
 
 ## CI/CD Metadata
 
@@ -180,6 +214,14 @@ Discovery methods for `targeted` and `static` checks:
 | `opengrep` | Opengrep installed | Runs Opengrep (a Semgrep fork with identical rule syntax and SARIF output) | Yes |
 | `sarif` | SARIF file in check definition | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
+| `glob` | Nothing | Walks the repository and selects whole-file targets matching a glob pattern | No |
+| `script` | A `node` or `bash` script in the check folder | Runs a user-provided script and parses its stdout into targets | No |
+
+`glob` and `script` produce targets that carry no SARIF findings to narrow, so
+they do not support the diff filter: a check using either runs over its full
+target set even during a `--diff-ref` scan. See
+[Configuration Reference → Discovery Methods](configuration.md#discovery-methods)
+for the full field reference for each.
 
 Diff filtering narrows findings to code touched by a git diff (plus call-graph flow). It activates automatically on all supporting discoveries whenever you provide a diff source (`--diff-ref`, `--diff-file`, `AGHAST_DIFF_REF`, or a check-level `diffRef`). OpenAnt (used for the call graph) is optional: if it isn't installed and no `AGHAST_OPENANT_DATASET` is provided, the filter falls back to **depth-0 mode** — file and line overlap only, no call-graph flow. A warning is logged when the fallback triggers. Set `checkTarget.diffFilter: false` on a specific check to exempt it. See [How It Works](how-it-works.md#diff-filtering-narrowing-a-discovery-to-changed-code) for details.
 

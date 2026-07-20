@@ -292,3 +292,54 @@ test('loadRuntimeConfig: rejects non-object root (e.g., array)', async () => {
     await unlinkSync(tmpPath);
   }
 });
+
+// Retry config was previously unvalidated, unlike budget: a bad value surfaced
+// mid-scan, after AI calls had already been paid for, rather than at load.
+test('loadRuntimeConfig: rejects invalid retry settings', async () => {
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const cases: Array<{ config: unknown; expect: string }> = [
+    { config: { retry: [] }, expect: '"retry" must be an object' },
+    { config: { retry: { maxAttempts: 0 } }, expect: '"retry.maxAttempts" must be an integer >= 1' },
+    { config: { retry: { maxAttempts: 2.5 } }, expect: '"retry.maxAttempts" must be an integer >= 1' },
+    { config: { retry: { baseDelayMs: -1 } }, expect: '"retry.baseDelayMs" must be an integer >= 0' },
+    { config: { retry: { circuitBreakerThreshold: 0 } }, expect: '"retry.circuitBreakerThreshold" must be an integer >= 1' },
+    {
+      config: { retry: { baseDelayMs: 5000, maxDelayMs: 1000 } },
+      expect: '"retry.maxDelayMs" (1000) must be >= "retry.baseDelayMs" (5000)',
+    },
+  ];
+
+  for (const { config, expect } of cases) {
+    const tmpPath = resolve(__dirname, 'fixtures', 'runtime-config', 'bad-retry.json');
+    await writeFile(tmpPath, JSON.stringify(config), 'utf-8');
+    try {
+      await assert.rejects(
+        async () => {
+          await loadRuntimeConfig('/unused', tmpPath);
+        },
+        (err: unknown) => (err as Error).message.includes(expect),
+        `expected rejection containing: ${expect}`,
+      );
+    } finally {
+      await unlink(tmpPath);
+    }
+  }
+});
+
+test('loadRuntimeConfig: accepts valid retry settings', async () => {
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const tmpPath = resolve(__dirname, 'fixtures', 'runtime-config', 'good-retry.json');
+  // maxAttempts: 1 is valid and means "no retry" — it counts the first attempt.
+  await writeFile(
+    tmpPath,
+    JSON.stringify({ retry: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, circuitBreakerThreshold: 5 } }),
+    'utf-8',
+  );
+  try {
+    const cfg = await loadRuntimeConfig('/unused', tmpPath);
+    assert.equal(cfg.retry?.maxAttempts, 1);
+    assert.equal(cfg.retry?.circuitBreakerThreshold, 5);
+  } finally {
+    await unlink(tmpPath);
+  }
+});

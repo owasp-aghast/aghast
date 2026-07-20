@@ -23,7 +23,7 @@ Scaffolds a new security check interactively. Any values not provided via flags 
 | `--id <id>` | Check ID (auto-prefixed with `aghast-` if needed) |
 | `--name <name>` | Human-readable check name |
 | `--check-type <type>` | `repository` (default), `targeted`, or `static` |
-| `--discovery <method>` | Discovery method: `semgrep`, `opengrep`, `sarif`, or `openant` (required for `targeted` and `static` types; `sarif` and `openant` are targeted-only) |
+| `--discovery <method>` | Discovery method: `semgrep`, `opengrep`, `sarif`, `openant`, or `glob` (required for `targeted` and `static` types; `sarif`, `openant` and `glob` are targeted-only). `script` discovery is not scaffolded — write the check definition by hand, see [Configuration Reference → Discovery Methods](configuration.md#discovery-methods) |
 | `--analysis-mode <mode>` | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery` |
 | `--severity <level>` | `critical`, `high`, `medium`, `low`, or `informational` |
 | `--confidence <level>` | `high`, `medium`, or `low` |

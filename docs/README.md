@@ -8,3 +8,7 @@
 - [Creating Checks](creating-checks.md) - scaffolding new security checks
 - [Configuration Reference](configuration.md) - check schemas, check types, runtime config
 - [Development](development.md) - setup, building, testing, releasing
+
+## Examples
+
+- [`examples/github-actions-pr-comments.yml`](examples/github-actions-pr-comments.yml) - runnable GitHub Actions workflow that scans a PR's changed code and posts findings as inline review comments

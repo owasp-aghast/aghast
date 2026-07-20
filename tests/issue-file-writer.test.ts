@@ -4,7 +4,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { writeIndividualIssueFiles } from '../src/issue-file-writer.js';
@@ -268,6 +268,47 @@ describe('writeIndividualIssueFiles', () => {
       () => writeIndividualIssueFiles(makeResults([makeIssue()]), out, 'pdf'),
       /Unsupported individual issue format: pdf/,
     );
+  });
+
+  it('clears issue files from a previous run with more findings', async () => {
+    const out = resolve(tmp, 'case-stale');
+    // First run: three findings.
+    await writeIndividualIssueFiles(
+      makeResults([makeIssue(), makeIssue({ file: 'src/b.ts' }), makeIssue({ file: 'src/c.ts' })]),
+      out,
+      'markdown',
+    );
+    const checkDir = join(out, 'security_issues_my-app', 'aghast-sqli');
+    assert.equal((await readdir(checkDir)).length, 3, 'first run should write 3 files');
+
+    // Second run: one finding. Without clearing, issue_002 and issue_003 survive
+    // and read as current findings — stale results in a security report.
+    await writeIndividualIssueFiles(makeResults([makeIssue()]), out, 'markdown');
+    const after = await readdir(checkDir);
+    assert.deepEqual(
+      after.sort(),
+      ['issue_001_example.ts.md'],
+      `stale files were left behind: ${after.join(', ')}`,
+    );
+  });
+
+  it('leaves files it did not generate alone when clearing', async () => {
+    const out = resolve(tmp, 'case-foreign');
+    await writeIndividualIssueFiles(makeResults([makeIssue(), makeIssue({ file: 'src/b.ts' })]), out, 'markdown');
+    const checkDir = join(out, 'security_issues_my-app', 'aghast-sqli');
+
+    // Things a user might legitimately keep alongside the output.
+    await writeFile(join(checkDir, 'NOTES.md'), 'my triage notes', 'utf-8');
+    await writeFile(join(checkDir, 'issue_summary.md'), 'not a generated file', 'utf-8');
+
+    await writeIndividualIssueFiles(makeResults([makeIssue()]), out, 'markdown');
+    const after = (await readdir(checkDir)).sort();
+    assert.ok(after.includes('NOTES.md'), 'unrelated file must survive');
+    assert.ok(
+      after.includes('issue_summary.md'),
+      'a file that only looks like a generated name (no NNN_) must survive',
+    );
+    assert.ok(!after.includes('issue_002_b.ts.md'), 'stale generated file should be gone');
   });
 
   it('derives project name from remoteUrl when path is missing', async () => {

@@ -24,6 +24,25 @@ import type { OutputFormatter } from './types.js';
 /** Maximum length of the description field in CSV output (longer values are truncated with an ellipsis). */
 const DESCRIPTION_MAX_LENGTH = 500;
 
+/**
+ * Judge columns are appended at the end and are ALWAYS present, even when the
+ * judge did not run (in which case they are empty).
+ *
+ * Two deliberate choices, both different from the HTML formatter:
+ *
+ *   - Appended, not inserted: a consumer reading by column index keeps working
+ *     for every column it already knew about.
+ *   - Unconditional, not "only when the judge ran": CSV is the format most
+ *     likely to be machine-parsed, and a header row that changes shape
+ *     depending on runtime configuration is far more hostile to a script than
+ *     a couple of empty columns. HTML can afford to hide an empty column
+ *     because a human reads it; a parser cannot.
+ *
+ * Scan-level cost is deliberately NOT a column. It is a single value for the
+ * whole run, so repeating it on every row would invite summing it — yielding
+ * cost × issue-count, silently and wrongly. It stays in the JSON, Markdown and
+ * HTML reports, where it can be shown once.
+ */
 const CSV_HEADERS = [
   'checkId',
   'checkName',
@@ -35,6 +54,9 @@ const CSV_HEADERS = [
   'confidence',
   'description',
   'recommendation',
+  'judgeVerdict',
+  'judgeConfidence',
+  'judgeRationale',
 ] as const;
 
 /** Escapes a single CSV field per RFC 4180. */
@@ -78,6 +100,13 @@ function issueRow(issue: SecurityIssue, checkStatus: string): string {
     escapeCsvField(issue.confidence),
     escapeCsvField(normalizeDescription(issue.description)),
     escapeCsvField(issue.recommendation),
+    escapeCsvField(issue.judge?.verdict),
+    // Confidence as a plain 0–1 number: spreadsheets can format or threshold it,
+    // which a "85%" string would prevent.
+    escapeCsvField(issue.judge?.confidence),
+    // Model-authored free text — flattened and truncated like description, so a
+    // multi-paragraph rationale cannot blow up the row.
+    escapeCsvField(issue.judge?.rationale ? normalizeDescription(issue.judge.rationale) : undefined),
   ].join(',');
 }
 
@@ -96,6 +125,9 @@ function errorCheckRow(check: CheckExecutionSummary): string {
     '', // confidence
     escapeCsvField(description),
     '', // recommendation
+    '', // judgeVerdict — an ERROR check produced no issue to judge
+    '', // judgeConfidence
+    '', // judgeRationale
   ].join(',');
 }
 
