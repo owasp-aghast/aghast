@@ -1309,7 +1309,16 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
     }
 
     try {
-      await runJudge(allIssues, checksById, repositoryPath, options.judge, costTracker);
+      // Share the scan's resolved retry settings and breaker with the judge, so
+      // opting into retry covers the judge's AI calls too rather than leaving
+      // them as the one unprotected call site.
+      await runJudge(
+        allIssues,
+        checksById,
+        repositoryPath,
+        { ...options.judge, retry: retryOptions, breaker: scanBreaker },
+        costTracker,
+      );
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         budgetAborted = true;

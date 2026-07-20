@@ -511,6 +511,60 @@ describe('CLI judge: budget abort during judge stage', () => {
   });
 });
 
+// ─── Judge retry ─────────────────────────────────────────────────────────────
+
+describe('CLI judge: retry covers the judge stage', () => {
+  afterEach(cleanupOutput);
+
+  it('retries a transient judge failure when retry is enabled', async () => {
+    // Two transient 503s from the judge provider against a budget of three
+    // attempts. Before the judge was wired into withRetry these degraded the
+    // verdict to `uncertain`, which escalates the check to FLAG — turning a
+    // network blip into a flagged security finding.
+    const { exitCode } = await scopedRun({
+      AGHAST_MOCK_AI: failFixtureRepo,
+      AGHAST_MOCK_JUDGE: judgeTpFixture,
+      AGHAST_MOCK_JUDGE_FAIL_TIMES: '2',
+    }, [
+      fixtureRepo, '--config-dir', singleCheckConfigDir,
+      '--judge-model', 'claude-opus-4-7',
+      '--retry-max-attempts', '3',
+    ]);
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+    const judge = issues[0].judge as Record<string, unknown>;
+    assert.ok(judge, 'issue should carry a judge verdict');
+    assert.equal(
+      judge.verdict,
+      'true_positive',
+      'a retried transient failure must yield the real verdict, not `uncertain`',
+    );
+  });
+
+  it('does not retry the judge when retry is not enabled', async () => {
+    // Same failure, no opt-in: the judge call fails and the verdict degrades.
+    // Pins that judge retry follows the same opt-in switch as check analysis
+    // rather than being silently always-on.
+    const { exitCode } = await scopedRun({
+      AGHAST_MOCK_AI: failFixtureRepo,
+      AGHAST_MOCK_JUDGE: judgeTpFixture,
+      AGHAST_MOCK_JUDGE_FAIL_TIMES: '2',
+    }, [
+      fixtureRepo, '--config-dir', singleCheckConfigDir,
+      '--judge-model', 'claude-opus-4-7',
+    ]);
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+    const judge = issues[0].judge as Record<string, unknown>;
+    assert.ok(judge, 'issue should still carry a judge field');
+    assert.equal(judge.verdict, 'uncertain', 'unretried judge failure degrades to uncertain');
+  });
+});
+
 // Helper to get summary as a typed Record
 function summary(results: Record<string, unknown>): Record<string, unknown> {
   return results.summary as Record<string, unknown>;

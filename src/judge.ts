@@ -5,7 +5,8 @@
  */
 
 import { logProgress, logDebug, logWarn, createTimer } from './logging.js';
-import { type AgentProvider, type SecurityIssue, type JudgeVerdict } from './types.js';
+import { type AgentProvider, type AgentResponse, type SecurityIssue, type JudgeVerdict } from './types.js';
+import { withRetry, defaultIsRetryable, DEFAULT_RETRY, type RetryOptions, type CircuitBreaker } from './retry.js';
 import { BudgetExceededError } from './budget.js';
 import { type ScanCostTracker, preflightBudget, recordUsage } from './cost-tracker.js';
 import { type AbortHandle, mapWithConcurrency } from './concurrency.js';
@@ -32,6 +33,15 @@ export interface JudgeOptions {
   concurrency?: number;
   dropFalsePositives?: boolean;
   minConfidence?: number;
+  /**
+   * Retry settings for the judge's own AI calls. The scan runner passes the
+   * same resolved options it uses for check analysis, so opting into retry
+   * covers judging too. Omitted means the caller did not opt in, and
+   * `DEFAULT_RETRY` (one attempt) applies.
+   */
+  retry?: RetryOptions;
+  /** Circuit breaker shared with the scan, when retry is enabled. */
+  breaker?: CircuitBreaker;
 }
 
 /** Map from check ID to the check's markdown instructions (used in judge prompt). */
@@ -170,18 +180,38 @@ export async function runJudge(
 
       logDebug(TAG, `Judging issue: ${issue.checkId} @ ${issue.file}:${issue.startLine}`);
 
-      let timeoutHandle: NodeJS.Timeout | undefined;
       try {
-        const agentResponse = await Promise.race([
-          options.provider.executeCheck(prompt, repositoryPath, `[judge:${issue.checkId}]`),
-          new Promise<never>((_, reject) => {
-            timeoutHandle = setTimeout(
-              () => reject(new JudgeTimeoutError(DEFAULT_JUDGE_TIMEOUT_MS / 1000)),
-              DEFAULT_JUDGE_TIMEOUT_MS,
-            );
-          }),
-        ]).finally(() => {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
+        // Declared as a function so each retry gets a fresh timer — reusing a
+        // single handle across attempts would leave the first attempt's timeout
+        // armed and abort a later, healthy one. Mirrors `analyzeOnce` in the
+        // scan runner.
+        const judgeOnce = async (): Promise<AgentResponse> => {
+          let timeoutHandle: NodeJS.Timeout | undefined;
+          return Promise.race([
+            options.provider.executeCheck(prompt, repositoryPath, `[judge:${issue.checkId}]`),
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(
+                () => reject(new JudgeTimeoutError(DEFAULT_JUDGE_TIMEOUT_MS / 1000)),
+                DEFAULT_JUDGE_TIMEOUT_MS,
+              );
+            }),
+          ]).finally(() => {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+          });
+        };
+
+        // The judge makes its own AI calls, and they are as prone to transient
+        // provider failure as check analysis is. Without this a dropped stream
+        // degraded the verdict to `uncertain`, which escalates the check to
+        // FLAG — turning a network blip into a flagged security finding.
+        const agentResponse = await withRetry(judgeOnce, {
+          ...DEFAULT_RETRY,
+          ...options.retry,
+          breaker: options.breaker,
+          label: `judge:${issue.checkId}`,
+          // Stop retrying the moment another worker has aborted the run
+          // (budget exceeded, or a fatal provider error).
+          isRetryable: (err) => !abortHandle.aborted && defaultIsRetryable(err),
         });
 
         recordUsage(costTracker, agentResponse.tokenUsage, judgeModel);

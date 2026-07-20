@@ -238,7 +238,17 @@ When the judge stage runs, the scan banner includes a summary line:
   Judged:        12 issues: 9 true / 2 false / 1 uncertain (judge: claude-opus-4-7)
 ```
 
-The `ScanSummary` in the JSON output includes `judgedIssues`, `falsePositives`, `uncertainJudgements`, `flaggedByCheck`, and `flaggedByJudge` counts. SARIF output includes `kind` (`open` for true positive, `false` for false positive, `review` for uncertain) and a `properties.judge` object on each result.
+The `ScanSummary` in the JSON output includes `judgedIssues`, `falsePositives`, `uncertainJudgements`, `flaggedByCheck`, and `flaggedByJudge` counts.
+
+SARIF output carries the verdict on each result as `kind`, plus a `properties.judge` object:
+
+| Verdict | SARIF `kind` | Notes |
+|---------|--------------|-------|
+| `true_positive` | `open` | |
+| `false_positive` | `pass` | Also emits a `suppressions` entry carrying the judge's rationale. `level` is omitted, since it is meaningless alongside `kind: "pass"` |
+| `uncertain` | `review` | |
+
+`pass` rather than the more obvious `false`: SARIF 2.1.0 §3.27.9 defines a closed set of `kind` values, and `false` is not among them — emitting it makes a validating consumer reject the whole document.
 
 ## CI usage — diff-scoped scans on PRs
 

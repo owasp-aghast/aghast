@@ -326,25 +326,6 @@ export interface CIMetadata {
   jobStartedAt?: string;
 }
 
-// --- A.5a CI/CD Metadata (spec E.4) ---
-
-/**
- * CI/CD pipeline context captured during a scan run. Populated automatically
- * from environment variables when aghast detects it is running inside a
- * supported CI/CD platform (GitHub Actions, GitLab CI, CircleCI). All fields
- * are optional in case detection is partial.
- */
-export interface CIMetadata {
-  /** URL of the CI/CD job that produced this scan. */
-  jobUrl?: string;
-  /** Branch (or ref) that was scanned. */
-  branch?: string;
-  /** What triggered the pipeline (e.g. `push`, `pull_request`, `schedule`). */
-  pipelineSource?: string;
-  /** ISO-8601 timestamp for when the CI/CD job started. */
-  jobStartedAt?: string;
-}
-
 // --- A.5 Complete Scan Results ---
 
 export interface ScanResults {

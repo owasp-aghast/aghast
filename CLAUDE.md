@@ -120,6 +120,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
 - `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
 - `AGHAST_MOCK_FAIL_TIMES` — Makes the mock agent provider fail its first N calls with a retryable (503) error before succeeding, so retry behaviour can be exercised end-to-end through the real CLI
+- `AGHAST_MOCK_JUDGE_FAIL_TIMES` — Same, but for the mock **judge** provider. Separate from `AGHAST_MOCK_FAIL_TIMES` so a test can fail the judge without also failing the scan; the two stages are retried independently
 - `AGHAST_MOCK_LOCAL_LOGIN` — Test hook for the Claude Code provider's local-login probe: `true` reports a logged-in session, `false` reports not-logged-in, both without spawning the agent SDK (keeps CLI auth tests hermetic)
 - `AGHAST_MOCK_CLAUDE_MODELS` — Test hook for the Claude Code provider's supported-model list: comma-separated model IDs, used to keep CLI model-validation tests hermetic
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
