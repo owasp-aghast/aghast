@@ -342,7 +342,7 @@ A single circuit breaker is shared across the whole scan **when retry is enabled
 Two caveats worth knowing before enabling it:
 
 - The per-target timeout is classified as retryable, so `maxAttempts: 3` can take up to roughly three times as long to give up on a genuinely hung provider.
-- The [judge stage](scanning.md#llm-judge-stage) makes its own AI calls that are **not** covered by retry.
+- The [judge stage](scanning.md#llm-judge-stage) makes its own AI calls, and they are covered by the same setting — enabling retry covers judging too.
 
 ## Check Instructions (`<id>.md`)
 

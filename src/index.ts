@@ -54,7 +54,14 @@ async function createMockJudgeProvider(modelOverride?: string): Promise<AgentPro
       throw new Error(formatError(ERROR_CODES.E8001, `path: ${mockJudgeValue}`), { cause: err });
     }
   }
-  const provider = new MockAgentProvider({ rawResponse });
+  // Test hook mirroring AGHAST_MOCK_FAIL_TIMES, but for the judge's own calls.
+  // Kept separate so a test can fail the judge without also failing the scan
+  // (and vice versa) — the two are retried independently.
+  const failTimesRaw = process.env.AGHAST_MOCK_JUDGE_FAIL_TIMES;
+  const parsedFailTimes = failTimesRaw ? Number(failTimesRaw) : 0;
+  const failTimes = Number.isInteger(parsedFailTimes) && parsedFailTimes > 0 ? parsedFailTimes : 0;
+
+  const provider = new MockAgentProvider({ rawResponse, failTimes });
   await provider.initialize({});
   provider.setModel?.(modelOverride ?? MOCK_MODEL_NAME);
   return provider;
