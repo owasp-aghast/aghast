@@ -12,7 +12,7 @@
  * checks run, not to enumerate the whole repo.
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import picomatch from 'picomatch';
 import type { MatchCriteria } from './types.js';
@@ -151,13 +151,10 @@ async function loadTags(repoPath: string): Promise<Set<string>> {
   // .aghast-tags
   try {
     const tagsFile = join(repoPath, '.aghast-tags');
-    const st = await stat(tagsFile);
-    if (st.isFile()) {
-      const raw = await readFile(tagsFile, 'utf-8');
-      for (const line of raw.split(/\r?\n/)) {
-        const t = line.trim();
-        if (t && !t.startsWith('#')) tags.add(t);
-      }
+    const raw = await readFile(tagsFile, 'utf-8');
+    for (const line of raw.split(/\r?\n/)) {
+      const t = line.trim();
+      if (t && !t.startsWith('#')) tags.add(t);
     }
   } catch {
     // Missing or unreadable; ignore.
@@ -166,18 +163,15 @@ async function loadTags(repoPath: string): Promise<Set<string>> {
   // .aghast.json -> tags array
   try {
     const cfgFile = join(repoPath, '.aghast.json');
-    const st = await stat(cfgFile);
-    if (st.isFile()) {
-      const raw = await readFile(cfgFile, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        Array.isArray((parsed as Record<string, unknown>).tags)
-      ) {
-        for (const t of (parsed as Record<string, unknown>).tags as unknown[]) {
-          if (typeof t === 'string' && t.trim() !== '') tags.add(t.trim());
-        }
+    const raw = await readFile(cfgFile, 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      Array.isArray((parsed as Record<string, unknown>).tags)
+    ) {
+      for (const t of (parsed as Record<string, unknown>).tags as unknown[]) {
+        if (typeof t === 'string' && t.trim() !== '') tags.add(t.trim());
       }
     }
   } catch {

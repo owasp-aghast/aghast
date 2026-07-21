@@ -158,7 +158,7 @@ describe('CLI mock mode: ScanResults output structure', () => {
 
   it('writes security_checks_results.json to the repository directory', async () => {
     await runCLI({ AGHAST_MOCK_AI: 'true' });
-    await access(outputFile); // throws if missing
+    await readFile(outputFile, 'utf-8'); // throws if missing
   });
 
   it('output has all required top-level ScanResults fields', async () => {
@@ -682,7 +682,6 @@ describe('CLI mock mode: output format', () => {
   it('default (no flag) writes .json file', async () => {
     const { exitCode } = await runCLI({ AGHAST_MOCK_AI: 'true' });
     assert.equal(exitCode, 0);
-    await access(outputFile); // throws if missing
     const raw = await readFile(outputFile, 'utf-8');
     const results = JSON.parse(raw) as Record<string, unknown>;
     assert.ok(results.scanId, 'Should be valid ScanResults JSON');
@@ -694,7 +693,6 @@ describe('CLI mock mode: output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'json'],
     );
     assert.equal(exitCode, 0);
-    await access(outputFile);
     const raw = await readFile(outputFile, 'utf-8');
     const results = JSON.parse(raw) as Record<string, unknown>;
     assert.ok(results.scanId, 'Should be valid ScanResults JSON');
@@ -706,8 +704,6 @@ describe('CLI mock mode: output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'sarif'],
     );
     assert.equal(exitCode, 0);
-    await access(sarifOutputFile);
-
     const raw = await readFile(sarifOutputFile, 'utf-8');
     const sarif = JSON.parse(raw) as Record<string, unknown>;
     assert.equal(sarif.version, '2.1.0');
@@ -770,8 +766,6 @@ describe('CLI mock mode: output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'markdown'],
     );
     assert.equal(exitCode, 0);
-    await access(markdownOutputFile);
-
     const md = await readFile(markdownOutputFile, 'utf-8');
     assert.ok(md.startsWith('# Security Scan Report'), 'Should start with the H1 title');
     assert.ok(md.includes('## Executive Summary'));
@@ -857,8 +851,6 @@ describe('CLI mock mode: CSV output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
     );
     assert.equal(exitCode, 0);
-    await access(csvOutputFile);
-
     const raw = await readFile(csvOutputFile, 'utf-8');
     const lines = raw.split('\r\n').filter((l) => l.length > 0);
     assert.equal(lines.length, 1, 'PASS scan should have header row only');
@@ -871,8 +863,6 @@ describe('CLI mock mode: CSV output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
     );
     assert.equal(exitCode, 0);
-    await access(csvOutputFile);
-
     const raw = await readFile(csvOutputFile, 'utf-8');
     const lines = raw.split('\r\n').filter((l) => l.length > 0);
     assert.equal(lines.length, 2, 'FAIL scan with 1 issue: header + 1 issue row');
@@ -912,8 +902,6 @@ describe('CLI mock mode: HTML output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
     );
     assert.equal(exitCode, 0);
-    await access(htmlOutputFile);
-
     const raw = await readFile(htmlOutputFile, 'utf-8');
     assert.ok(raw.startsWith('<!DOCTYPE html>'), 'should start with DOCTYPE');
     assert.ok(raw.includes('<style>'), 'should include inline CSS');
@@ -927,8 +915,6 @@ describe('CLI mock mode: HTML output format', () => {
       [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'html'],
     );
     assert.equal(exitCode, 0);
-    await access(htmlOutputFile);
-
     const raw = await readFile(htmlOutputFile, 'utf-8');
     assert.ok(raw.includes('aghast-sql-injection'));
     assert.ok(raw.includes('SQL Injection Prevention'));

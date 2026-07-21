@@ -17,9 +17,8 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliEntry = resolve(__dirname, '..', 'src', 'cli.ts');
@@ -71,8 +70,7 @@ describe('build-config CLI', () => {
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = join(tmpdir(), `aghast-build-config-${randomUUID()}`);
-    await mkdir(tempDir, { recursive: true });
+    tempDir = await mkdtemp(join(tmpdir(), 'aghast-build-config-'));
   });
 
   afterEach(async () => {

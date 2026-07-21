@@ -10,7 +10,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readFile, mkdtemp, rm, access } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { logProgress, logDebug } from './logging.js';
@@ -182,12 +182,12 @@ export async function runSarifScanner(
       );
     }
 
-    const outputFileExists = await access(outputFile).then(() => true, () => false);
-    if (!outputFileExists) {
+    let sarifContent: string;
+    try {
+      sarifContent = await readFile(outputFile, 'utf-8');
+    } catch {
       throw new Error(`${tool.displayName} did not produce output`);
     }
-
-    const sarifContent = await readFile(outputFile, 'utf-8');
     logDebug(tool.tag, `SARIF output: ${sarifContent.length} chars`);
     return sarifContent;
   } finally {
