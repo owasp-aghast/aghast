@@ -172,7 +172,7 @@ describe('MarkdownFormatter — mixed scan', () => {
 
   it('Header includes repository remote/branch/commit', () => {
     const md = formatter.format(mixed);
-    assert.match(md, /https:\/\/github\.com\/example\/repo/);
+    assert.match(md, /^- \*\*Remote URL:\*\* <https:\/\/github\.com\/example\/repo>$/m);
     assert.ok(md.includes('`main`'));
     assert.ok(md.includes('`abc1234`'));
   });
@@ -236,7 +236,7 @@ describe('MarkdownFormatter — mixed scan', () => {
     const triggerIdx = md.indexOf('**Trigger:**');
     assert.ok(jobIdx > 0 && triggerIdx > 0);
     assert.ok(jobIdx < triggerIdx, 'Job URL should precede Trigger');
-    assert.match(md, /https:\/\/ci\.example\.com\/jobs\/123/);
+    assert.match(md, /^- \*\*Job URL:\*\* https:\/\/ci\.example\.com\/jobs\/123$/m);
     assert.ok(md.includes('github-actions'));
   });
 
