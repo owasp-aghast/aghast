@@ -243,7 +243,7 @@ jobs:
     # specific steps that need them, not granted to the job token here.
     permissions:
       contents: write
-      pull-requests: read
+      pull-requests: write
       id-token: write
 
     steps:
@@ -354,6 +354,7 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
 
       - name: Build, pack, and sign stable release
@@ -389,11 +390,16 @@ jobs:
       - name: Clean up dry-run release PR and branch
         if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.release.outputs.pr_number }}
+          BRANCH: ${{ steps.release.outputs.branch }}
         run: |
-          gh pr close "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --delete-branch \
-            --comment "Dry-run validation succeeded (build, sign, and \`npm publish --dry-run\`). Closing and deleting the branch; nothing was published, merged, tagged, or released."
+          # `gh pr close --comment` uses GitHub's GraphQL API, which is not
+          # available to this workflow token. Use the REST APIs instead; the
+          # job permissions above grant precisely the needed PR and contents
+          # write access.
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -f state=closed
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"
 
       - name: Merge published release PR
         if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
