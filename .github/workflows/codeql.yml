@@ -1,0 +1,46 @@
+name: CodeQL
+
+# Static analysis (SAST) for the aghast repo itself, uploaded to GitHub code
+# scanning. Public-only, like scorecard.yml — it satisfies the OpenSSF
+# Scorecard "SAST" check, which looks for github/codeql-action running on the
+# project's commits. Excluded from the public/private sync (see .claude).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so the baseline stays fresh even in quiet weeks.
+    - cron: '27 6 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66 # v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66 # v3
+        with:
+          category: /language:javascript-typescript
