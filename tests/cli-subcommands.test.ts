@@ -145,36 +145,36 @@ describe('CLI subcommands: help and version', () => {
 // ─── Documentation links in help output ──────────────────────────────────────
 
 describe('CLI subcommands: documentation links', () => {
-  const DOCS_URL = 'https://github.com/owasp-aghast/aghast/tree/main/docs';
+  const DOCS_BASE = 'https://github.com/owasp-aghast/aghast/tree/main/docs';
 
-  it('top-level --help links to the documentation', async () => {
+  it('top-level --help links to the docs index', async () => {
     const { exitCode, stdout } = await runCLI(['--help']);
     assert.equal(exitCode, 0);
-    assert.ok(stdout.includes(DOCS_URL), 'Top-level help should include the docs URL');
+    assert.ok(stdout.includes(DOCS_BASE), 'Top-level help should link to the docs index');
   });
 
-  it('scan --help links to the documentation', async () => {
+  it('scan --help links to the scanning page', async () => {
     const { exitCode, stdout } = await runCLI(['scan', '--help'], { AGHAST_MOCK_AI: 'true' });
     assert.equal(exitCode, 0);
-    assert.ok(stdout.includes(DOCS_URL), 'scan help should include the docs URL');
+    assert.ok(stdout.includes(`${DOCS_BASE}/scanning.md`), 'scan help should link to scanning.md');
   });
 
-  it('new-check --help links to the documentation', async () => {
+  it('new-check --help links to the creating-checks page', async () => {
     const { exitCode, stdout } = await runCLI(['new-check', '--help']);
     assert.equal(exitCode, 0);
-    assert.ok(stdout.includes(DOCS_URL), 'new-check help should include the docs URL');
+    assert.ok(stdout.includes(`${DOCS_BASE}/creating-checks.md`), 'new-check help should link to creating-checks.md');
   });
 
-  it('build-config --help links to the documentation', async () => {
+  it('build-config --help links to the configuration page', async () => {
     const { exitCode, stdout } = await runCLI(['build-config', '--help']);
     assert.equal(exitCode, 0);
-    assert.ok(stdout.includes(DOCS_URL), 'build-config help should include the docs URL');
+    assert.ok(stdout.includes(`${DOCS_BASE}/configuration.md`), 'build-config help should link to configuration.md');
   });
 
-  it('stats --help links to the documentation', async () => {
+  it('stats --help links to the cost-tracking page', async () => {
     const { exitCode, stdout } = await runCLI(['stats', '--help']);
     assert.equal(exitCode, 0);
-    assert.ok(stdout.includes(DOCS_URL), 'stats help should include the docs URL');
+    assert.ok(stdout.includes(`${DOCS_BASE}/cost-tracking.md`), 'stats help should link to cost-tracking.md');
   });
 });
 

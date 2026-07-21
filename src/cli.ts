@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
-import { DOCS_HELP_FOOTER } from './docs-url.js';
+import { docsFooter } from './docs-url.js';
 
 // Signal to subcommand modules that they're being imported, not run directly
 process.env._AGHAST_CLI = '1';
@@ -35,7 +35,7 @@ Options:
 
 Run 'aghast <command> --help' for more information on a command.
 
-${DOCS_HELP_FOOTER}`;
+${docsFooter()}`;
 
 function getVersion(): string {
   const require = createRequire(import.meta.url);

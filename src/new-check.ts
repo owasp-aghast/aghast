@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { getCheckType, getValidCheckTypes } from './check-types.js';
 import { DEFAULT_MODEL } from './types.js';
-import { DOCS_HELP_FOOTER } from './docs-url.js';
+import { docsFooter } from './docs-url.js';
 
 const ID_PREFIX = 'aghast-';
 
@@ -558,7 +558,7 @@ Examples:
   aghast new-check --config-dir ./my-checks --check-type targeted --discovery semgrep --language typescript
   aghast new-check --config-dir ./my-checks --check-type targeted --discovery sarif --sarif-file ./sast-results.sarif
 
-${DOCS_HELP_FOOTER}`;
+${docsFooter('creating-checks.md')}`;
 
 export async function runNewCheck(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
