@@ -1,7 +1,7 @@
 /**
  * Real OpenCode integration tests.
  * These tests actually invoke the OpenCode SDK and send prompts to a real LLM.
- * Uses the model from REGRESSION_TEST_MODEL env var (defaults to opencode/nemotron-3-ultra-free).
+ * Uses the model from REGRESSION_TEST_MODEL env var (defaults to opencode/north-mini-code-free).
  * Requires opencode CLI to be installed (npm install -g opencode-ai).
  * Skip explicitly by setting AGHAST_SKIP_OPENCODE_TESTS=true.
  */
@@ -12,7 +12,7 @@ import { OpenCodeProvider } from '../src/opencode-provider.js';
 import { FatalProviderError } from '../src/types.js';
 
 const skip = !!process.env.AGHAST_SKIP_OPENCODE_TESTS;
-const MODEL = process.env.REGRESSION_TEST_MODEL ?? 'opencode/nemotron-3-ultra-free';
+const MODEL = process.env.REGRESSION_TEST_MODEL ?? 'opencode/north-mini-code-free';
 
 if (skip) {
   console.log('Skipping OpenCode integration tests (AGHAST_SKIP_OPENCODE_TESTS set)');
