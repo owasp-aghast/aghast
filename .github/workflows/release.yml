@@ -163,9 +163,12 @@ jobs:
             TITLE="chore: release v$INPUT_VERSION"
             BODY="Automated stable-release version bump for v$INPUT_VERSION. A maintainer approval starts publication; the workflow merges this PR only after npm publishing succeeds."
           fi
-          gh pr create --base main --head "$BRANCH" \
-            --title "$TITLE" \
-            --body "$BODY"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" \
+            -f title="$TITLE" \
+            -f head="$BRANCH" \
+            -f base=main \
+            -f body="$BODY" \
+            --jq .html_url
 
       - name: Bump version in runner only (prerelease)
         if: steps.detect.outputs.is_prerelease == 'true'
