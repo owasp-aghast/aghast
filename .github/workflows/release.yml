@@ -247,11 +247,6 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
-          token: ${{ secrets.RELEASE_PAT }}
-
       - name: Verify approved release PR and required checks
         id: release
         env:
@@ -310,8 +305,18 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if ! echo "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::Release PR #$PR_NUMBER has an invalid head SHA. Refusing to publish."
+            exit 1
+          fi
 
-          VERSION=$(node -p "require('./package.json').version")
+          # Derive the version from the branch, which the preceding pattern
+          # check has already constrained. Do not read package.json before the
+          # PR's origin and author have been verified.
+          VERSION="${BRANCH#release/v}"
+          if [ "$VERSION" = "$BRANCH" ]; then
+            VERSION="${BRANCH#release-test/v}"
+          fi
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Release PR version $VERSION is not stable; nothing to publish."
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -345,17 +350,43 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          if [ "$DRY_RUN" != "true" ] && git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
-            echo "::error::Tag v$VERSION already exists on the remote"
-            exit 1
-          fi
           echo "Publishing approved release PR #$PR_NUMBER as v$VERSION"
           echo "publish=true" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+
+      # The release PR's SHA comes from an event, so it must not be checked out
+      # until the preceding step has verified its repository, author, branch,
+      # current SHA, approval, and required checks.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.release.outputs.publish == 'true'
+        with:
+          ref: ${{ steps.release.outputs.head_sha }}
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify checked-out release version
+        if: steps.release.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          CHECKED_OUT_VERSION=$(node -p "require('./package.json').version")
+          if [ "$CHECKED_OUT_VERSION" != "$VERSION" ]; then
+            echo "::error::Checked-out package version $CHECKED_OUT_VERSION does not match release version $VERSION"
+            exit 1
+          fi
+
+      - name: Verify stable tag is available
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists on the remote"
+            exit 1
+          fi
 
       - name: Build, pack, and sign stable release
         if: steps.release.outputs.publish == 'true'
