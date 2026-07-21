@@ -48,7 +48,7 @@ Stable releases are gated on an explicit **maintainer approval** — the dispatc
 
 1. Go to **Actions > Release > Run workflow**
 2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version. Optionally set `dry_run: true` to validate the whole flow (build, sign, `npm publish --dry-run`) without publishing — the dry-run PR and its branch are cleaned up automatically afterward.
-3. The dispatched run validates the version, waits for CI on `main`, updates `package.json` and the README install commands, and opens a `release/v<version>` PR. It does **not** publish.
+3. The dispatched run validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, and opens a `release/v<version>` PR. It does **not** publish.
 4. A repository **maintainer or admin** reviews and approves the release PR (the person who dispatched the release can approve it — the PR is opened under a distinct reviewer identity to make that possible). Do **not** merge the PR manually.
 5. The approval (or, if approval preceded CI, the successful CI completion) triggers publication, which automatically:
    - Verifies the PR is an in-repo, maintainer-approved release PR with all required checks green

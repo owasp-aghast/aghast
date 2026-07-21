@@ -123,10 +123,15 @@ jobs:
           if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
             if [ "$DRY_RUN" = "true" ]; then
               # A dry-run branch left over from a previous validation of the
-              # same version is disposable — delete it (which auto-closes its
-              # PR) so re-running the dry run doesn't hard-fail here.
-              echo "Dry-run branch $BRANCH already exists from a previous run; deleting it before recreating."
-              git push origin --delete "$BRANCH"
+              # same version is disposable. Close its PR and delete the branch
+              # explicitly (rather than just deleting the ref and relying on
+              # GitHub's asynchronous auto-close) so recreation below doesn't
+              # race a stale open PR for the same head branch.
+              echo "Dry-run branch $BRANCH already exists from a previous run; closing its PR and deleting the branch before recreating."
+              if ! gh pr close "$BRANCH" --delete-branch; then
+                echo "No open PR found for $BRANCH (or close failed); deleting the branch directly."
+                git push origin --delete "$BRANCH"
+              fi
             else
               echo "::error::Release branch $BRANCH already exists"
               exit 1
@@ -229,10 +234,10 @@ jobs:
     concurrency:
       group: release-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
       cancel-in-progress: false
-    # This job's own GITHUB_TOKEN stays minimal: it only reads PR metadata.
-    # The elevated capabilities — merging the release PR, pushing the tag —
-    # are exercised through RELEASE_PAT on the specific steps that need them,
-    # not granted to the job token here.
+    # This job's own GITHUB_TOKEN stays minimal: it reads PR metadata and
+    # creates the GitHub Release. The elevated capabilities — merging the
+    # release PR, pushing the tag — are exercised through RELEASE_PAT on the
+    # specific steps that need them, not granted to the job token here.
     permissions:
       contents: write
       pull-requests: read
