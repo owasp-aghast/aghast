@@ -313,6 +313,11 @@ Use `script` discovery when target selection is too custom for the other
 methods — parsing an OpenAPI spec, walking a build manifest, querying a schema
 artifact. aghast runs your script and turns its stdout into targets.
 
+> `aghast new-check --check-type targeted --discovery script` scaffolds a
+> script check and, unless you point `--script` at an existing file, writes a
+> starter script wired to the output format you pick. See
+> [Creating Checks](creating-checks.md).
+
 > **Trust model — read this before enabling a script check.**
 >
 > **Scripts run with the full privileges of the aghast process and are not
