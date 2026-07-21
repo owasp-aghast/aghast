@@ -24,6 +24,7 @@ import { getAvailableFormats } from './formatters/index.js';
 import { getAvailableLogTypes, isValidLogLevel, getLogLevel, setLogLevel } from './logging.js';
 import { DEFAULT_MODEL } from './types.js';
 import type { RuntimeConfig, ProviderModelInfo } from './types.js';
+import { DOCS_HELP_FOOTER } from './docs-url.js';
 import {
   DEFAULT_OUTPUT_FORMAT,
   DEFAULT_LOG_LEVEL,
@@ -178,7 +179,9 @@ Examples:
   aghast build-config --config-dir ./my-checks
   aghast build-config --config-dir ./my-checks --provider claude-code --model sonnet --non-interactive
   aghast build-config --runtime-config ./prod.json --output-format sarif --fail-on-check-failure true
-  aghast build-config --config-dir ./my-checks --clear logFile --clear genericPrompt`;
+  aghast build-config --config-dir ./my-checks --clear logFile --clear genericPrompt
+
+${DOCS_HELP_FOOTER}`;
 
 const CLEARABLE_FIELDS = new Set([
   'provider',

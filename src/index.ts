@@ -35,6 +35,7 @@ import { verifyOpenAntInstalled } from './openant-runner.js';
 import { MockAgentProvider } from './mock-agent-provider.js';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_LOG_LEVEL, DEFAULT_LOG_TYPE } from './defaults.js';
+import { DOCS_HELP_FOOTER } from './docs-url.js';
 import { colorStatus } from './colors.js';
 import { getCheckType } from './check-types.js';
 import { getDiscovery, getRegisteredDiscoveries } from './discovery.js';
@@ -205,7 +206,9 @@ Examples:
   aghast scan ./my-repo --config-dir ./my-checks --output results.sarif --output-format sarif
   aghast scan ./my-repo --config-dir ./my-checks --fail-on-check-failure --debug
   aghast scan ./my-repo --config-dir ./my-checks --log-file scan.log --log-level warn
-  aghast scan ./my-repo --config-dir ./my-checks --model claude-sonnet-4-20250514`;
+  aghast scan ./my-repo --config-dir ./my-checks --model claude-sonnet-4-20250514
+
+${DOCS_HELP_FOOTER}`;
 
 function parseArgs(args: string[]): {
   repositoryPath?: string;

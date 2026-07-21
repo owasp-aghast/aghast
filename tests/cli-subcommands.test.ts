@@ -142,6 +142,42 @@ describe('CLI subcommands: help and version', () => {
   });
 });
 
+// ─── Documentation links in help output ──────────────────────────────────────
+
+describe('CLI subcommands: documentation links', () => {
+  const DOCS_URL = 'https://github.com/owasp-aghast/aghast/tree/main/docs';
+
+  it('top-level --help links to the documentation', async () => {
+    const { exitCode, stdout } = await runCLI(['--help']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes(DOCS_URL), 'Top-level help should include the docs URL');
+  });
+
+  it('scan --help links to the documentation', async () => {
+    const { exitCode, stdout } = await runCLI(['scan', '--help'], { AGHAST_MOCK_AI: 'true' });
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes(DOCS_URL), 'scan help should include the docs URL');
+  });
+
+  it('new-check --help links to the documentation', async () => {
+    const { exitCode, stdout } = await runCLI(['new-check', '--help']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes(DOCS_URL), 'new-check help should include the docs URL');
+  });
+
+  it('build-config --help links to the documentation', async () => {
+    const { exitCode, stdout } = await runCLI(['build-config', '--help']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes(DOCS_URL), 'build-config help should include the docs URL');
+  });
+
+  it('stats --help links to the documentation', async () => {
+    const { exitCode, stdout } = await runCLI(['stats', '--help']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes(DOCS_URL), 'stats help should include the docs URL');
+  });
+});
+
 // ─── Unknown command ──────────────────────────────────────────────────────────
 
 describe('CLI subcommands: unknown command', () => {

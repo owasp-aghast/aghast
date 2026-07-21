@@ -11,6 +11,7 @@ import 'dotenv/config';
 import { ERROR_CODES, formatError } from './error-codes.js';
 import { queryScanHistory, type ScanRecord, type HistoryFilters } from './scan-history.js';
 import { formatCostSourceLabel } from './cost-calculator.js';
+import { DOCS_HELP_FOOTER } from './docs-url.js';
 
 const STATS_HELP = `Usage: aghast stats [options]
 
@@ -31,7 +32,9 @@ Options:
 Examples:
   aghast stats
   aghast stats --repo my-org/my-repo --since 2026-01-01
-  aghast stats --model claude-sonnet --json`;
+  aghast stats --model claude-sonnet --json
+
+${DOCS_HELP_FOOTER}`;
 
 interface StatsArgs {
   repo?: string;
