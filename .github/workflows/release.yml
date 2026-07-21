@@ -7,14 +7,26 @@ on:
         description: 'Release version. Stable: x.y.z (e.g. 0.4.4, 0.5.0, 1.0.0). Prerelease: x.y.z-<id>.<n>, counter >= 1 (e.g. 0.5.0-beta.1, 1.0.0-rc.2).'
         required: true
         type: string
+      dry_run:
+        description: 'Validate the release flow without publishing, merging, tagging, or creating a GitHub Release.'
+        required: false
+        default: false
+        type: boolean
+  pull_request_review:
+    types: [submitted]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
 
 permissions: read-all
 
 jobs:
-  release:
+  prepare-release:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
       actions: read
       id-token: write
 
@@ -46,7 +58,7 @@ jobs:
             BASE_VERSION="${INPUT_VERSION%%-*}"
             DIST_TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[1-9][0-9]*$/\1/')
           else
-            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (stable) or x.y.z-<id>.<n> with <n> >= 1 (prerelease)."
+            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (stable) or x.y.z-<id>.<n> with <n> >= 1."
             exit 1
           fi
 
@@ -67,37 +79,80 @@ jobs:
             console.log(gt ? 'yes' : 'no');
           " "$BASE_VERSION" "$CURRENT_BASE")
           if [ "$IS_GREATER" != "yes" ]; then
-            if [ "$IS_PRERELEASE" = "true" ]; then
-              echo "::error::Prerelease base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
-            else
-              echo "::error::Version $INPUT_VERSION is not greater than current version $CURRENT_VERSION"
-            fi
+            echo "::error::Release base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
             exit 1
           fi
 
-          # For prereleases, early-exit if the tag already exists on the
-          # remote. `git push --atomic` below is the authoritative guard.
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
-              echo "::error::Tag v$INPUT_VERSION already exists on the remote"
-              exit 1
-            fi
-            echo "Publishing prerelease v$INPUT_VERSION with npm dist-tag '$DIST_TAG' (current stable: v$CURRENT_BASE)"
-          else
-            echo "Releasing v$INPUT_VERSION (current: v$CURRENT_VERSION)"
+          # The remote ref is the authoritative duplicate-release guard for
+          # both stable and prerelease tags.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$INPUT_VERSION already exists on the remote"
+            exit 1
           fi
 
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
+      # This verifies that the release starts from a known-good main commit.
+      # Stable-release PR checks are evaluated by the approval/CI event gate,
+      # so this dispatch run never waits for the release PR's CI.
       - uses: ./.github/release-actions/wait-for-ci
 
       - name: Update version references (stable)
         if: steps.detect.outputs.is_prerelease == 'false'
         env:
           INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/scripts/update-version-refs.cjs "$INPUT_VERSION"
+
+      # A maintainer reviews and merges this PR. Do not enable auto-merge here:
+      # the main-push job below performs publication only after that human merge.
+      - name: Create stable release branch
+        if: steps.detect.outputs.is_prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          node .github/scripts/update-version-refs.cjs "$INPUT_VERSION"
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            BRANCH="release-test/v$INPUT_VERSION"
+          else
+            BRANCH="release/v$INPUT_VERSION"
+          fi
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "::error::Release branch $BRANCH already exists"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch --create "$BRANCH"
+          git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
+          git commit -m "chore: release v$INPUT_VERSION"
+          git push --set-upstream origin "$BRANCH"
+
+      - name: Open stable release PR
+        if: steps.detect.outputs.is_prerelease == 'false'
+        env:
+          # This distinct identity makes the maintainer who dispatches the
+          # release eligible to review its PR.
+          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            BRANCH="release-test/v$INPUT_VERSION"
+            TITLE="test: release v$INPUT_VERSION"
+            BODY="Dry-run stable-release validation for v$INPUT_VERSION. Maintainer approval runs build, signing, and npm publish dry-run only; it will not publish, merge, tag, or create a GitHub Release."
+          else
+            BRANCH="release/v$INPUT_VERSION"
+            TITLE="chore: release v$INPUT_VERSION"
+            BODY="Automated stable-release version bump for v$INPUT_VERSION. A maintainer approval starts publication; the workflow merges this PR only after npm publishing succeeds."
+          fi
+          gh pr create --base main --head "$BRANCH" \
+            --title "$TITLE" \
+            --body "$BODY"
 
       - name: Bump version in runner only (prerelease)
         if: steps.detect.outputs.is_prerelease == 'true'
@@ -105,21 +160,8 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: node .github/scripts/update-version-refs.cjs "$INPUT_VERSION" --prerelease
 
-      - name: Commit and push version bump (stable)
-        if: steps.detect.outputs.is_prerelease == 'false'
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
-          git commit -m "chore: release v$INPUT_VERSION"
-          git push
-          git tag "v$INPUT_VERSION"
-          git push origin "v$INPUT_VERSION"
-
       - name: Create throwaway commit and push tag only (prerelease)
-        if: steps.detect.outputs.is_prerelease == 'true'
+        if: steps.detect.outputs.is_prerelease == 'true' && inputs.dry_run != true
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -134,33 +176,26 @@ jobs:
           # than silently diverging.
           git push --atomic origin "v$INPUT_VERSION"
 
-      - name: Build, pack, and sign
+      - name: Build, pack, and sign prerelease
+        if: steps.detect.outputs.is_prerelease == 'true'
         uses: ./.github/release-actions/build-pack-sign
         with:
           version: ${{ inputs.version }}
 
-      - name: Publish to npmjs (stable)
-        if: steps.detect.outputs.is_prerelease == 'false'
-        run: npm publish --access public --provenance
-
-      - name: Publish to npmjs (prerelease)
+      - name: Publish prerelease to npmjs
         if: steps.detect.outputs.is_prerelease == 'true'
-        run: npm publish --access public --provenance --tag "${{ steps.detect.outputs.dist_tag }}"
-
-      - name: Create GitHub Release (stable)
-        if: steps.detect.outputs.is_prerelease == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_VERSION: ${{ inputs.version }}
+          DIST_TAG: ${{ steps.detect.outputs.dist_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          gh release create "v$INPUT_VERSION" \
-            --title "v$INPUT_VERSION" \
-            --generate-notes \
-            "owasp-aghast-aghast-${INPUT_VERSION}.tgz" \
-            "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --provenance --tag "$DIST_TAG" --dry-run
+          else
+            npm publish --access public --provenance --tag "$DIST_TAG"
+          fi
 
-      - name: Create GitHub Release (prerelease)
-        if: steps.detect.outputs.is_prerelease == 'true'
+      - name: Create prerelease GitHub Release
+        if: steps.detect.outputs.is_prerelease == 'true' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
@@ -171,3 +206,163 @@ jobs:
             --generate-notes \
             "owasp-aghast-aghast-${INPUT_VERSION}.tgz" \
             "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"
+
+  publish-stable-release:
+    if: >
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify approved release PR and required checks
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$EVENT_PR_NUMBER"
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(gh api "repos/$GITHUB_REPOSITORY/commits/$EVENT_HEAD_SHA/pulls" \
+              --jq '.[] | select(.state == "open") | .number' | head -1)
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No open PR is associated with this CI run; nothing to release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          BRANCH=$(echo "$PR" | jq -r .head.ref)
+          HEAD_SHA=$(echo "$PR" | jq -r .head.sha)
+          BASE_BRANCH=$(echo "$PR" | jq -r .base.ref)
+          TITLE=$(echo "$PR" | jq -r .title)
+          STATE=$(echo "$PR" | jq -r .state)
+
+          if [ "$STATE" != "open" ] || [ "$BASE_BRANCH" != "main" ] || ! echo "$BRANCH" | grep -qE '^release(-test)?/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "PR #$PR_NUMBER is not an open stable release PR; nothing to release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then
+            echo "Release PR #$PR_NUMBER has changed since this event; waiting for current CI and approval."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSION=$(node -p "require('./package.json').version")
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Release PR version $VERSION is not stable; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          DRY_RUN=false
+          if [ "$BRANCH" = "release-test/v$VERSION" ] && [ "$TITLE" = "test: release v$VERSION" ]; then
+            DRY_RUN=true
+          elif [ "$BRANCH" != "release/v$VERSION" ] || [ "$TITLE" != "chore: release v$VERSION" ]; then
+            echo "::error::Release PR #$PR_NUMBER does not match version $VERSION. Refusing to publish."
+            exit 1
+          fi
+
+          MAINTAINER_APPROVAL=false
+          for REVIEWER in $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --paginate --jq '.[] | select(.state == "APPROVED") | .user.login' | sort -u); do
+            PERMISSION=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REVIEWER/permission" --jq .permission)
+            if [ "$PERMISSION" = "maintain" ] || [ "$PERMISSION" = "admin" ]; then
+              MAINTAINER_APPROVAL=true
+              break
+            fi
+          done
+          if [ "$MAINTAINER_APPROVAL" != "true" ]; then
+            echo "Release PR #$PR_NUMBER has no active approval from a repository maintainer or admin yet."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          REQUIRED_STATES=$(gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --required --json state --jq '[.[] | .state] | join(",")' 2>/dev/null || true)
+          if [ -z "$REQUIRED_STATES" ] || echo "$REQUIRED_STATES" | grep -qvE '^(SUCCESS|SKIPPED)(,(SUCCESS|SKIPPED))*$'; then
+            echo "Required PR checks are not all successful yet; not waiting in this run."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" != "true" ] && git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists on the remote"
+            exit 1
+          fi
+          echo "Publishing approved release PR #$PR_NUMBER as v$VERSION"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+
+      - name: Build, pack, and sign stable release
+        if: steps.release.outputs.publish == 'true'
+        uses: ./.github/release-actions/build-pack-sign
+        with:
+          version: ${{ steps.release.outputs.version }}
+
+      - name: Check whether stable version is already published
+        id: registry
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if npm view "@owasp-aghast/aghast@$VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish stable release to npmjs
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true' && steps.registry.outputs.published == 'false'
+        run: npm publish --access public --provenance
+
+      - name: Dry-run stable release publication
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run == 'true'
+        run: npm publish --access public --provenance --dry-run
+
+      - name: Merge published release PR
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          PR_NUMBER: ${{ steps.release.outputs.pr_number }}
+        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
+
+      - name: Tag merged stable release
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git fetch origin main --depth=1
+          git checkout --detach origin/main
+          if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+            echo "::error::Merged main does not contain version $VERSION."
+            exit 1
+          fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Create stable GitHub Release
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --generate-notes \
+            "owasp-aghast-aghast-${VERSION}.tgz" \
+            "owasp-aghast-aghast-${VERSION}.tgz.sigstore"
