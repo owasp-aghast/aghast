@@ -690,6 +690,8 @@ describe('new-check utility', () => {
         '',                     // Confidence (default: medium)
         '',                     // Model (optional, skip)
         '',                     // Repositories (optional, skip)
+        '',                     // Priority (optional, skip)
+        '',                     // Add repository match criteria? (y/N — skip)
         'Overview text',        // Check overview
         'Item A,Item B',        // Check items
         'All good',             // PASS condition
@@ -979,5 +981,325 @@ describe('new-check utility', () => {
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
     assert.equal(checkDef.checkTarget.discovery, 'glob');
     assert.equal(checkDef.checkTarget.maxTargets, 40);
+  });
+
+  // ─── Targeted script checks (issue #350) ─
+
+  it('targeted script (node/json-array) creates checkTarget and generates starter script', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'json-array',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'script');
+    assert.equal(checkDef.checkTarget.scriptType, 'node');
+    assert.equal(checkDef.checkTarget.outputFormat, 'json-array');
+    assert.equal(checkDef.checkTarget.script, 'aghast-test.js', 'script defaults to <id>.js');
+    assert.equal(checkDef.instructionsFile, 'aghast-test.md', 'script discovery requires instructionsFile by default');
+    assert.equal(checkDef.checkTarget.rules, undefined, 'script should not have rules');
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(files.includes('aghast-test.js'), 'should generate starter script');
+    assert.ok(files.includes('aghast-test.md'), 'should generate instructions .md');
+    assert.ok(!files.includes('aghast-test.yaml'), 'script should not generate Semgrep yaml');
+
+    // The generated node script runs and emits an empty json-array.
+    const scriptOut = await new Promise<string>((res) => {
+      execFile(process.execPath, [resolve(checksDir, 'aghast-test', 'aghast-test.js')], (_e, stdout) => res(stdout));
+    });
+    assert.equal(scriptOut.trim(), '[]', 'starter json-array script should print []');
+  });
+
+  it('targeted script (node/lines) starter script emits repo-relative paths, one per line', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'lines',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const scriptPath = resolve(checksDir, 'aghast-test', 'aghast-test.js');
+    const scriptOut = await new Promise<string>((res) => {
+      execFile(process.execPath, [scriptPath], (_e, stdout) => res(stdout));
+    });
+    assert.equal(scriptOut.trim(), '', 'starter lines script should print nothing for the empty starter file list');
+
+    const content = await readFile(scriptPath, 'utf-8');
+    assert.match(content, /files\.join\('\\n'\)/, 'lines template should join the file list with newlines');
+  });
+
+  it('targeted script (node/json-object) starter script emits an empty targets object', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'json-object',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const scriptPath = resolve(checksDir, 'aghast-test', 'aghast-test.js');
+    const scriptOut = await new Promise<string>((res) => {
+      execFile(process.execPath, [scriptPath], (_e, stdout) => res(stdout));
+    });
+    assert.equal(scriptOut.trim(), '{"targets":[]}', 'starter json-object script should print { targets: [] }');
+  });
+
+  // bash scriptType can't be executed on Windows CI runners (E7106), so these
+  // assert the generated file *content* directly instead of running it —
+  // mirroring how the Semgrep-rule template tests check file contents
+  // without invoking Semgrep.
+
+  it('targeted script (bash/lines) generates a starter script with the lines output contract', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'bash',
+      '--output-format': 'lines',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.script, 'aghast-test.sh', 'bash script defaults to <id>.sh');
+
+    const content = await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.sh'), 'utf-8');
+    assert.match(content, /^#!\/usr\/bin\/env bash/, 'bash script should have a bash shebang');
+    assert.match(content, /set -euo pipefail/, 'bash script should fail fast on errors');
+    assert.match(content, /one repo-relative file path per line/, 'lines template should describe the lines contract');
+  });
+
+  it('targeted script (bash/json-array) generates a starter script that echoes an empty array', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'bash',
+      '--output-format': 'json-array',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const content = await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.sh'), 'utf-8');
+    assert.match(content, /echo '\[\]'/, 'json-array bash template should echo an empty array');
+  });
+
+  it('targeted script (bash/json-object) generates a starter script that echoes an empty targets object', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'bash',
+      '--output-format': 'json-object',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const content = await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.sh'), 'utf-8');
+    assert.match(content, /echo '\{ "targets": \[\] \}'/, 'json-object bash template should echo an empty targets object');
+  });
+
+  it('warns when scaffolding a bash script check on Windows, since it will fail at scan time (E7106)', async (t) => {
+    if (process.platform !== 'win32') {
+      t.skip('Windows-only warning; not applicable on this platform');
+      return;
+    }
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'bash',
+      '--output-format': 'json-array',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+    assert.ok(
+      result.stderr.includes('bash') && result.stderr.includes('Windows') && result.stderr.includes('E7106'),
+      `Expected a bash-on-Windows warning referencing E7106, got: ${result.stderr}`,
+    );
+  });
+
+  it('targeted script with general-vuln-discovery skips instructionsFile and .md', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'json-array',
+      '--analysis-mode': 'general-vuln-discovery',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.analysisMode, 'general-vuln-discovery');
+    assert.equal(checkDef.instructionsFile, undefined, 'built-in mode does not need instructionsFile');
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.md'), 'built-in mode should not generate .md file');
+    assert.ok(files.includes('aghast-test.js'), 'should still generate starter script');
+  });
+
+  it('targeted script with explicit --script does not generate a starter script', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'lines',
+      '--script': 'find-targets.js',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.script, 'find-targets.js', 'should use the supplied script path');
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.js'), 'should not generate a template when --script is supplied');
+  });
+
+  it('targeted script includes cwd and timeoutMs when provided', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'json-object',
+      '--cwd': 'server',
+      '--timeout-ms': '60000',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.outputFormat, 'json-object');
+    assert.equal(checkDef.checkTarget.cwd, 'server');
+    assert.equal(checkDef.checkTarget.timeoutMs, 60000);
+  });
+
+  it('targeted script rejects false-positive-validation analysis mode', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'json-array',
+      '--analysis-mode': 'false-positive-validation',
+    }));
+
+    assert.notEqual(result.exitCode, 0, 'Should reject false-positive-validation for script discovery');
+    assert.ok(
+      result.stderr.includes('Invalid analysis mode'),
+      `Expected analysis mode error, got: ${result.stderr}`,
+    );
+  });
+
+  it('targeted script rejects an invalid output format', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'script',
+      '--script-type': 'node',
+      '--output-format': 'yaml',
+    }));
+
+    assert.notEqual(result.exitCode, 0, 'Should reject an unknown output format');
+    assert.ok(
+      result.stderr.includes('Invalid outputFormat'),
+      `Expected outputFormat error, got: ${result.stderr}`,
+    );
+  });
+
+  // ─── priority / matchCriteria (registry-level, issue #350) ─
+
+  it('writes priority into the registry entry', async () => {
+    const result = await runNewCheck(allFlags({ '--priority': '5' }));
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    const entry = registry.checks.find((c: { id: string }) => c.id === 'aghast-test');
+    assert.equal(entry.priority, 5);
+  });
+
+  it('rejects a negative priority', async () => {
+    const result = await runNewCheck(allFlags({ '--priority': '-1' }));
+    assert.notEqual(result.exitCode, 0, 'Should reject a negative priority');
+    assert.ok(result.stderr.includes('Invalid priority'), `Expected priority error, got: ${result.stderr}`);
+  });
+
+  it('rejects a non-integer priority', async () => {
+    const result = await runNewCheck(allFlags({ '--priority': 'abc' }));
+    assert.notEqual(result.exitCode, 0, 'Should reject a non-integer priority');
+    assert.ok(result.stderr.includes('Invalid priority'), `Expected priority error, got: ${result.stderr}`);
+  });
+
+  it('writes matchCriteria with only the provided sub-fields', async () => {
+    const result = await runNewCheck(allFlags({
+      '--match-file-types': '.ts,.tsx',
+      '--match-tags': 'backend,api',
+    }));
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    const entry = registry.checks.find((c: { id: string }) => c.id === 'aghast-test');
+    assert.deepEqual(entry.matchCriteria.hasFileTypes, ['.ts', '.tsx']);
+    assert.deepEqual(entry.matchCriteria.tags, ['backend', 'api']);
+    assert.equal(entry.matchCriteria.hasPaths, undefined, 'absent sub-fields are omitted');
+    assert.equal(entry.matchCriteria.hasFiles, undefined, 'absent sub-fields are omitted');
+  });
+
+  it('rejects a blank/comma-only --match-file-types value instead of scaffolding an empty matchCriteria array', async () => {
+    const result = await runNewCheck(allFlags({
+      '--match-file-types': ' , ',
+    }));
+    assert.notEqual(result.exitCode, 0, 'Should reject a match-file-types value with no usable entries after parsing');
+    assert.ok(
+      result.stderr.includes('--match-file-types') && result.stderr.includes('no usable values'),
+      `Expected a match-file-types parsing error, got: ${result.stderr}`,
+    );
+
+    // The registry must be left untouched — no bad entry written that would
+    // later crash loadCheckRegistry for the entire config directory.
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    assert.equal(registry.checks.length, 0, 'no registry entry should be written when validation fails');
+  });
+
+  it('rejects a comma-only --match-paths / --match-tags value the same way', async () => {
+    const result = await runNewCheck(allFlags({
+      '--match-paths': ',,',
+      '--match-tags': ' ',
+    }));
+    assert.notEqual(result.exitCode, 0, 'Should reject match-paths/match-tags values with no usable entries');
+    assert.ok(result.stderr.includes('--match-paths'), `Expected a match-paths error, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('--match-tags'), `Expected a match-tags error, got: ${result.stderr}`);
+  });
+
+  it('preserves brace-expansion glob patterns in --match-paths instead of splitting on the internal comma', async () => {
+    const result = await runNewCheck(allFlags({
+      '--match-paths': 'src/**/*.{ts,tsx},docs/**/*.md',
+    }));
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    const entry = registry.checks.find((c: { id: string }) => c.id === 'aghast-test');
+    assert.deepEqual(
+      entry.matchCriteria.hasPaths,
+      ['src/**/*.{ts,tsx}', 'docs/**/*.md'],
+      'the brace-expansion pattern should survive as one entry, not be torn apart at the internal comma',
+    );
+  });
+
+  it('omits matchCriteria and priority when not provided', async () => {
+    const result = await runNewCheck(allFlags());
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    const entry = registry.checks.find((c: { id: string }) => c.id === 'aghast-test');
+    assert.equal(entry.matchCriteria, undefined, 'no matchCriteria key when unset');
+    assert.equal(entry.priority, undefined, 'no priority key when unset');
   });
 });
