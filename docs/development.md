@@ -44,15 +44,17 @@ The three `test:<tool>` scripts run real integration tests against external bina
 
 ## Releasing
 
-Releases are created via the **Release** GitHub Actions workflow (`workflow_dispatch`):
+Stable releases are gated on an explicit **maintainer approval** — the dispatch run only *prepares* a release PR; publication happens when a maintainer approves it.
 
 1. Go to **Actions > Release > Run workflow**
-2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version
-3. The workflow automatically:
-   - Updates `package.json` version and README install commands
-   - Commits to main and creates a `v<version>` git tag
-   - Builds and packs a tarball
-   - Publishes to npmjs registry
+2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version. Optionally set `dry_run: true` to validate the whole flow (build, sign, `npm publish --dry-run`) without publishing — the dry-run PR and its branch are cleaned up automatically afterward.
+3. The dispatched run validates the version, waits for CI on `main`, updates `package.json` and the README install commands, and opens a `release/v<version>` PR. It does **not** publish.
+4. A repository **maintainer or admin** reviews and approves the release PR (the person who dispatched the release can approve it — the PR is opened under a distinct reviewer identity to make that possible). Do **not** merge the PR manually.
+5. The approval (or, if approval preceded CI, the successful CI completion) triggers publication, which automatically:
+   - Verifies the PR is an in-repo, maintainer-approved release PR with all required checks green
+   - Builds, packs, and signs the tarball with cosign
+   - Publishes to the npmjs registry
+   - Merges the release PR (only after npm publishing succeeds), then tags the merged `main` commit `v<version>`
    - Creates a GitHub Release with the tarball attached
 
 If a release fixes a disclosed security vulnerability, update the generated GitHub Release notes to explicitly call out the fix. Include the CVE ID when one has been assigned.

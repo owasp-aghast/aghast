@@ -121,8 +121,16 @@ jobs:
           fi
 
           if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
-            echo "::error::Release branch $BRANCH already exists"
-            exit 1
+            if [ "$DRY_RUN" = "true" ]; then
+              # A dry-run branch left over from a previous validation of the
+              # same version is disposable — delete it (which auto-closes its
+              # PR) so re-running the dry run doesn't hard-fail here.
+              echo "Dry-run branch $BRANCH already exists from a previous run; deleting it before recreating."
+              git push origin --delete "$BRANCH"
+            else
+              echo "::error::Release branch $BRANCH already exists"
+              exit 1
+            fi
           fi
 
           git config user.name "github-actions[bot]"
@@ -208,13 +216,23 @@ jobs:
             "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"
 
   publish-stable-release:
+    # Only fire on events touching a release branch. Without the branch guard
+    # the workflow_run trigger runs this job on every CI completion repo-wide
+    # (each push to main, each PR) just to self-no-op; the review trigger is
+    # likewise scoped so ordinary PR approvals don't spin it up.
     if: >
-      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' &&
+      startsWith(github.event.pull_request.head.ref, 'release')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'release'))
     runs-on: ubuntu-latest
     concurrency:
       group: release-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
       cancel-in-progress: false
+    # This job's own GITHUB_TOKEN stays minimal: it only reads PR metadata.
+    # The elevated capabilities — merging the release PR, pushing the tag —
+    # are exercised through RELEASE_PAT on the specific steps that need them,
+    # not granted to the job token here.
     permissions:
       contents: write
       pull-requests: read
@@ -251,11 +269,33 @@ jobs:
           BASE_BRANCH=$(echo "$PR" | jq -r .base.ref)
           TITLE=$(echo "$PR" | jq -r .title)
           STATE=$(echo "$PR" | jq -r .state)
+          HEAD_REPO=$(echo "$PR" | jq -r '.head.repo.full_name')
+          PR_AUTHOR=$(echo "$PR" | jq -r '.user.login')
 
           if [ "$STATE" != "open" ] || [ "$BASE_BRANCH" != "main" ] || ! echo "$BRANCH" | grep -qE '^release(-test)?/v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "PR #$PR_NUMBER is not an open stable release PR; nothing to release."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+
+          # A release-shaped PR is only trusted if it was authored inside this
+          # repository by a trusted collaborator. Genuine release PRs are pushed
+          # to an in-repo `release/v*` branch by RELEASE_PAT and opened by the
+          # RELEASE_REVIEWER_TOKEN account — both same-repo and write+ enabled.
+          # Without this, the repo being public means a fork PR can carry the
+          # branch name `release/v9.9.9` and title `chore: release v9.9.9`, pass
+          # the secret-free required checks, and reach this gate with only a
+          # (potentially social-engineered) approval standing between it and a
+          # publish. A fork origin or untrusted author on a release-shaped PR is
+          # an attack signal, so we hard-fail rather than silently no-op.
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Release PR #$PR_NUMBER originates from fork '$HEAD_REPO', not '$GITHUB_REPOSITORY'. Refusing to publish."
+            exit 1
+          fi
+          AUTHOR_PERMISSION=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$PR_AUTHOR/permission" --jq .permission 2>/dev/null || echo none)
+          if [ "$AUTHOR_PERMISSION" != "maintain" ] && [ "$AUTHOR_PERMISSION" != "admin" ] && [ "$AUTHOR_PERMISSION" != "write" ]; then
+            echo "::error::Release PR #$PR_NUMBER was opened by '$PR_AUTHOR' (permission: $AUTHOR_PERMISSION), who is not a trusted repository collaborator. Refusing to publish."
+            exit 1
           fi
           if [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then
             echo "Release PR #$PR_NUMBER has changed since this event; waiting for current CI and approval."
@@ -333,6 +373,19 @@ jobs:
       - name: Dry-run stable release publication
         if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run == 'true'
         run: npm publish --access public --provenance --dry-run
+
+      # A dry run validates the flow and then leaves nothing behind: close the
+      # PR and delete its branch so the next dry run of the same version starts
+      # clean. `always()`-style tolerance isn't needed — this runs only after a
+      # successful dry-run publish, and cleanup failure should surface.
+      - name: Clean up dry-run release PR and branch
+        if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          PR_NUMBER: ${{ steps.release.outputs.pr_number }}
+        run: |
+          gh pr close "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --delete-branch \
+            --comment "Dry-run validation succeeded (build, sign, and \`npm publish --dry-run\`). Closing and deleting the branch; nothing was published, merged, tagged, or released."
 
       - name: Merge published release PR
         if: steps.release.outputs.publish == 'true' && steps.release.outputs.dry_run != 'true'
