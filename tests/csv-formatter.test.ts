@@ -133,6 +133,24 @@ describe('CsvFormatter', () => {
     assert.ok(out.includes('"Found, multiple, issues"'));
   });
 
+  it('formula-injection: a description that starts with = is guarded in the row', () => {
+    const results = makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 10 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1',
+        file: 'a.ts', startLine: 1, endLine: 1,
+        description: '=HYPERLINK("http://evil","click")',
+        recommendation: '@SUM(1+1)',
+      }],
+    });
+    const out = formatter.format(results);
+    const row = out.split('\r\n')[1]!;
+    // description contains a comma → RFC-quoted with the leading-quote guard inside.
+    assert.ok(row.includes(`"'=HYPERLINK(""http://evil"",""click"")"`), `unexpected row: ${row}`);
+    // recommendation has no comma → guarded but not RFC-quoted.
+    assert.ok(row.includes(`,'@SUM(1+1),`), `recommendation not guarded: ${row}`);
+  });
+
   it('description containing double quotes has them doubled', () => {
     const results = makeResults({
       checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 10 }],
@@ -239,6 +257,39 @@ describe('escapeCsvField', () => {
   });
   it('newline → quoted', () => {
     assert.equal(escapeCsvField('a\nb'), '"a\nb"');
+  });
+
+  it('formula-injection: prefixes a quote when the field starts with =', () => {
+    assert.equal(escapeCsvField('=1+1'), "'=1+1");
+  });
+  it('formula-injection: guards +, -, @ triggers too', () => {
+    assert.equal(escapeCsvField('+1'), "'+1");
+    assert.equal(escapeCsvField('-1'), "'-1");
+    assert.equal(escapeCsvField('@SUM(A1)'), "'@SUM(A1)");
+  });
+  it('formula-injection: guard composes with RFC-4180 quoting', () => {
+    // `=cmd,x` needs both the leading-quote guard and comma-quoting.
+    assert.equal(escapeCsvField('=cmd,x'), `"'=cmd,x"`);
+  });
+  it('formula-injection: a tab-led field is guarded (tab alone needs no RFC quoting)', () => {
+    assert.equal(escapeCsvField('\t=1'), "'\t=1");
+  });
+  it('formula-injection: a CR-led field is guarded and RFC-quoted', () => {
+    assert.equal(escapeCsvField('\r=1'), `"'\r=1"`);
+  });
+  it('formula-injection: does not touch a value with a formula char mid-string', () => {
+    assert.equal(escapeCsvField('a=b'), 'a=b');
+  });
+
+  it('formula-injection guard is skipped for numbers, so a negative line number is not corrupted', () => {
+    // `-` is a formula trigger, but startLine/endLine/judge.confidence are
+    // genuinely numeric columns, never attacker-controlled free text — a
+    // negative value must stay a plain number, not gain a leading `'`.
+    assert.equal(escapeCsvField(-5), '-5');
+    assert.equal(escapeCsvField(-0.5), '-0.5');
+  });
+  it('a string that merely looks numeric is still guarded (the guard is type-based, not content-based)', () => {
+    assert.equal(escapeCsvField('-5'), "'-5");
   });
 });
 

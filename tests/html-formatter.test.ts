@@ -164,6 +164,24 @@ describe('HtmlFormatter', () => {
     assert.ok(!htmlBody.includes('<script>alert'), 'unescaped alert script tag must not appear in rendered body');
   });
 
+  it('escapes HTML in recommendation fields', () => {
+    const out = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 10 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1',
+        file: 'a.ts', startLine: 1, endLine: 1,
+        description: 'x',
+        recommendation: '<img src=x onerror=alert(1)>',
+      }],
+    }));
+    assert.ok(out.includes('&lt;img src=x onerror=alert(1)&gt;'));
+    const htmlBody = out.replace(
+      /<script id="aghast-results" type="application\/json">[\s\S]*?<\/script>/,
+      '',
+    );
+    assert.ok(!htmlBody.includes('<img src=x onerror=alert(1)>'), 'unescaped img tag must not survive in rendered body');
+  });
+
   it('escapes HTML in file names', () => {
     const out = formatter.format(makeResults({
       checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 10 }],

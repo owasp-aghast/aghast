@@ -103,7 +103,13 @@ export function fencedCode(code: string, language: string): string {
  * single-line (and table cells must not contain raw newlines).
  */
 export function inlineCode(value: string): string {
-  const flat = value.replace(/\r?\n/g, ' ');
+  // CommonMark/GFM treat a bare CR (not just CRLF/LF) as a line ending — see
+  // escapeMarkdownText/escapeInlineText/escapeTableCell's identical fix — so
+  // collapse it here too. `value` is often AI-response-controlled (e.g.
+  // `issue.file`); an uncollapsed bare `\r` would split the surrounding
+  // Markdown into two physical lines before the backtick span can close,
+  // letting a leading `#` on the second line render as a real heading.
+  const flat = value.replace(/\r\n?|\n/g, ' ');
   // Compute longest backtick run inline (don't reuse chooseFence — its
   // minimum is 3 for block fences, but inline-code minimum is 1).
   let longest = 0;
@@ -136,7 +142,53 @@ function escapeTableCell(value: string): string {
     .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/`/g, '\\`')
-    .replace(/\r?\n/g, ' ');
+    // CommonMark/GFM treat a bare CR (not just CRLF/LF) as a line ending — see
+    // escapeMarkdownText's identical fix — so collapse it here too, not just
+    // `\r?\n`, or a lone `\r` would survive uncollapsed into a multi-line cell.
+    .replace(/\r\n?|\n/g, ' ');
+}
+
+/**
+ * Escapes AI-authored free text (issue `description` / `recommendation`) for
+ * safe rendering as a Markdown *block*.
+ *
+ * Threat model: these fields come from the LLM's analysis of the scanned
+ * repository, whose source can contain attacker-crafted strings. Rendered raw
+ * they can inject active HTML that executes when the report is viewed on GitHub,
+ * a wiki, or any Markdown viewer permitting inline HTML (`<script>`,
+ * `<img onerror=...>`), and can break the report's own structure (table cells,
+ * headings, code fences, lists, blockquotes). The HTML formatter already defends
+ * the same fields via `escapeHtml`; this is the Markdown-side equivalent.
+ *
+ * Unlike {@link escapeInlineText}, newlines are *preserved* — these are prose
+ * paragraphs, not single-line bullets — so the escaping is applied per line:
+ *   1. Inline pass: backslash-escape every character that can open inline
+ *      formatting or a raw HTML tag (`\` first so we don't re-escape our own
+ *      escapes). Escaping `<` is what neutralises the inline-HTML vector — per
+ *      CommonMark/GFM, `\<script>` renders as literal text.
+ *   2. Block pass: backslash-escape a leading marker (after optional
+ *      indentation) that would open a block construct — ATX heading (`#`),
+ *      list/thematic-break (`-`/`+`), setext underline (`=`), or an ordered-list
+ *      marker (`1.` / `1)`). Blockquote (`>`) and fences (`` ` ``/`~`) are
+ *      already handled by the inline pass.
+ */
+export function escapeMarkdownText(value: string): string {
+  return value
+    // CommonMark/GFM treat CRLF, LF, *and a bare CR* as line endings — fold
+    // all three to `\n` before splitting, or a lone `\r` would slip through
+    // unsplit and its trailing content would bypass the block-marker escapes
+    // below despite a compliant renderer treating it as a new line.
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => {
+      const inline = line
+        .replace(/\\/g, '\\\\')
+        .replace(/[`*_[\]<>|~]/g, (m) => `\\${m}`);
+      return inline
+        .replace(/^(\s*)([#=+-])/, '$1\\$2')
+        .replace(/^(\s*)(\d+)([.)])/, '$1$2\\$3');
+    })
+    .join('\n');
 }
 
 /** Sentence-case label for a status (e.g. `PASS` → `Passed`). */
@@ -277,7 +329,9 @@ function renderIssue(issue: SecurityIssue, ordinal: number): string[] {
   lines.push('');
   lines.push('**Description:**');
   lines.push('');
-  lines.push(issue.description);
+  // AI-authored free text — escape so crafted repo content can't inject active
+  // HTML or break the report's Markdown structure (see escapeMarkdownText).
+  lines.push(escapeMarkdownText(issue.description));
   if (issue.codeSnippet) {
     lines.push('');
     lines.push('**Code:**');
@@ -296,7 +350,8 @@ function renderIssue(issue: SecurityIssue, ordinal: number): string[] {
     lines.push('');
     lines.push('**Recommendation:**');
     lines.push('');
-    lines.push(issue.recommendation);
+    // Same AI-authored free text as description — escape it identically.
+    lines.push(escapeMarkdownText(issue.recommendation));
   }
   if (issue.judge) {
     lines.push('');
@@ -447,7 +502,12 @@ function escapeInlineText(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/[*_`<[\]|]/g, (m) => `\\${m}`)
-    .replace(/\r?\n/g, ' ');
+    // Collapse CRLF, bare LF, *and* a bare CR to a space — CommonMark/GFM
+    // treats a lone `\r` as a line ending too (see escapeMarkdownText's
+    // identical fix), and an uncollapsed bare CR here would let a renderer
+    // split this "single-line" bullet into two lines, letting a leading
+    // block marker on the second line escape the bullet.
+    .replace(/\r\n?|\n/g, ' ');
 }
 
 /** Human-readable labels for CIMetadata fields, in display order. */
