@@ -44,6 +44,7 @@ jobs:
       dist_tag: ${{ steps.detect.outputs.dist_tag }}
       branch: ${{ steps.bump.outputs.branch }}
       head_sha: ${{ steps.bump.outputs.head_sha }}
+      base_sha: ${{ steps.bump.outputs.base_sha }}
       pr_number: ${{ steps.bump.outputs.pr_number }}
 
     steps:
@@ -163,6 +164,10 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Record main's tip that this bump is based on. publish-stable uses it
+          # to detect if main advanced during the approval wait (which would
+          # leave the bump branch behind main's strict "up to date" rule).
+          BASE_SHA=$(git rev-parse HEAD)
           git switch --create "$BRANCH"
           git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
           git commit -m "chore: release v$INPUT_VERSION"
@@ -178,6 +183,7 @@ jobs:
           echo "Opened $PR_URL"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "pr_number=${PR_URL##*/}" >> "$GITHUB_OUTPUT"
 
       # Block until the bump PR's checks are green, so the human is only ever
@@ -340,6 +346,34 @@ jobs:
             echo "::error::One or more checks/statuses on commit $HEAD_SHA are not green"
             exit 1
           fi
+
+      # main's strict rule requires the bump branch to be up to date to merge,
+      # and the bot's bypass covers reviews only — not strict status checks. If
+      # main advanced (or the bump branch itself moved) while the deployment
+      # awaited approval, the pinned head_sha we are about to publish is behind:
+      # the merge would be blocked by strict and the v<version> tag would diverge
+      # from what was published. Abort BEFORE publishing and clean up the bump
+      # PR/branch so a re-dispatch from current main starts clean. These are
+      # plain SHA compares, so they are reliable on the shallow pinned checkout.
+      - name: Abort if the release moved while awaiting approval
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+          BRANCH: ${{ needs.prepare.outputs.branch }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          CURRENT_MAIN=$(git rev-parse FETCH_HEAD)
+          CURRENT_HEAD=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          if [ "$CURRENT_MAIN" != "$BASE_SHA" ] || [ "$CURRENT_HEAD" != "$HEAD_SHA" ]; then
+            echo "::error::The release moved since prepare (main ${BASE_SHA}->${CURRENT_MAIN}, head ${HEAD_SHA}->${CURRENT_HEAD}). main's strict rule would block the merge and the tag would diverge from npm. Re-dispatch to release from current main."
+            gh pr close "$PR_NUMBER" --delete-branch || git push origin --delete "$BRANCH" || true
+            exit 1
+          fi
+          echo "No movement since prepare; safe to publish and merge."
 
       - name: Verify stable tag is available
         if: inputs.dry_run != true
