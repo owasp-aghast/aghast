@@ -59,6 +59,8 @@ Stable releases are gated on an explicit human approval delivered through the **
 
 Publishing happens **before** the merge on purpose: if `npm publish` fails, `main` is never advanced ahead of the registry, and the still-open PR can simply be closed.
 
+Because the approval can hold `publish-stable` for a while, it also guards against the release going stale: it re-checks — twice, the second time immediately before the irreversible `npm publish` — that neither `main` nor the bump branch has moved since `prepare` recorded them. If either moved (which would leave the branch behind `main`'s strict "up to date" rule and make the tag diverge from what was published), it aborts **before** publishing, cleans up the bump PR/branch, and asks for a re-dispatch from current `main`. Nothing is half-released.
+
 ### One-time setup: the `release` environment
 
 The gate requires a GitHub Environment named **`release`** with a required reviewer. A maintainer creates it once, in either the UI or via the API:
@@ -77,6 +79,8 @@ Without this environment the `publish-stable` job runs unpaused, so the environm
 ### Release identity and tokens
 
 All release git operations — branch push, PR open, merge, tag push — run as a single dedicated bot account, **`aghast-release-review-bot`** (repo `write`), through the **`RELEASE_REVIEWER_TOKEN`** secret. It must be a PAT (not `GITHUB_TOKEN`) so pushes and the PR trigger CI and the `auto-approve` workflow. No personal account token is involved. (The older `RELEASE_PAT` secret is no longer used and can be deleted.)
+
+The token must grant, for this repository, both **Contents: write** (push the bump branch, push the tag, and merge) and **Pull requests: write** (open, close, and merge the bump PR). Repo `write` on the *account* is not sufficient on its own: a **fine-grained** PAT is further restricted to its own selected permissions, so it needs *Contents → Read and write* and *Pull requests → Read and write* explicitly — otherwise the branch push fails with `403 Permission … denied`. A **classic** PAT needs the `repo` scope.
 
 The bump PR's non-author review comes from `github-actions[bot]` via `auto-approve.yml`; because it is a different identity from the bot that opened the PR, it is a valid approval and satisfies the Scorecard Code-Review check.
 
