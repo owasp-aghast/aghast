@@ -187,10 +187,13 @@ jobs:
       # the approval gate is reached.
       - name: Wait for the bump PR's checks (stable)
         if: steps.detect.outputs.is_prerelease == 'false'
-        # Bound the wait like the wait-for-ci action's own 600s cap (used
-        # earlier in this job), rather than tying up the runner for the whole
-        # default job timeout if a check hangs (stuck runner, external status
-        # that never reports, etc).
+        # Bound the wait so a hung check (stuck runner, external status that
+        # never reports, etc) can't tie up the runner for the whole default
+        # job timeout, the way wait-for-ci's own 600s cap (used earlier in
+        # this job) bounds its wait. This step waits longer (20m vs 10m)
+        # because it watches every check the bump PR triggers — including
+        # CodeQL, which runs on pull_request and typically takes longer than
+        # the single "CI" workflow run wait-for-ci checks on main.
         timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
@@ -282,6 +285,8 @@ jobs:
       contents: write
       pull-requests: write
       id-token: write # npm Trusted Publishing (OIDC)
+      checks: read # re-verify step reads check-runs for the pinned head_sha
+      statuses: read # re-verify step reads commit statuses for the pinned head_sha
 
     steps:
       # The bump PR's head SHA was produced by our own prepare job, so it needs
@@ -315,10 +320,22 @@ jobs:
           # (not `gh pr checks`, which reports on whatever the PR's head
           # currently is) so we validate exactly the commit that's about to
           # be built and published.
-          NOT_GREEN_RUNS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length')
-          NOT_GREEN_STATUSES=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" \
-            --jq '[.[] | select(.state != "success")] | length')
+          RUNS_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" --paginate --slurp)
+          STATUSES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses" --paginate --slurp)
+
+          TOTAL_RUNS=$(echo "$RUNS_JSON" | jq '[.[].check_runs[]] | length')
+          NOT_GREEN_RUNS=$(echo "$RUNS_JSON" | jq '[.[].check_runs[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length')
+          TOTAL_STATUSES=$(echo "$STATUSES_JSON" | jq '[.[][]] | length')
+          NOT_GREEN_STATUSES=$(echo "$STATUSES_JSON" | jq '[.[][] | select(.state != "success")] | length')
+
+          # A PR always has at least the checks prepare already waited on, so
+          # finding none here (propagation lag, API hiccup, etc.) means we
+          # failed to verify anything — treat that as a failure rather than
+          # silently passing.
+          if [ "$((TOTAL_RUNS + TOTAL_STATUSES))" -eq 0 ]; then
+            echo "::error::No checks or statuses found for commit $HEAD_SHA — cannot verify it is green"
+            exit 1
+          fi
           if [ "$NOT_GREEN_RUNS" != "0" ] || [ "$NOT_GREEN_STATUSES" != "0" ]; then
             echo "::error::One or more checks/statuses on commit $HEAD_SHA are not green"
             exit 1
