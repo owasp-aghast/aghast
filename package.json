@@ -1,6 +1,6 @@
 {
   "name": "@owasp-aghast/aghast",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "AI Guided Hybrid Application Static Testing",
   "type": "module",
   "repository": {
