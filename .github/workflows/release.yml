@@ -187,6 +187,11 @@ jobs:
       # the approval gate is reached.
       - name: Wait for the bump PR's checks (stable)
         if: steps.detect.outputs.is_prerelease == 'false'
+        # Bound the wait like the wait-for-ci action's own 600s cap (used
+        # earlier in this job), rather than tying up the runner for the whole
+        # default job timeout if a check hangs (stuck runner, external status
+        # that never reports, etc).
+        timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
@@ -300,13 +305,24 @@ jobs:
       - name: Re-verify the bump PR's checks are green
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
+          set -euo pipefail
           # Backstop: prepare already blocked on green, but a check could have
-          # been re-run and failed while the deployment awaited approval. A
-          # plain `gh pr checks` (no --watch) is a snapshot: it exits non-zero
-          # if any check is not passing.
-          gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --fail-fast
+          # been re-run and failed while the deployment awaited approval — or
+          # the release branch could have moved past head_sha in the
+          # meantime. Query the pinned commit's own checks/statuses directly
+          # (not `gh pr checks`, which reports on whatever the PR's head
+          # currently is) so we validate exactly the commit that's about to
+          # be built and published.
+          NOT_GREEN_RUNS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length')
+          NOT_GREEN_STATUSES=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" \
+            --jq '[.[] | select(.state != "success")] | length')
+          if [ "$NOT_GREEN_RUNS" != "0" ] || [ "$NOT_GREEN_STATUSES" != "0" ]; then
+            echo "::error::One or more checks/statuses on commit $HEAD_SHA are not green"
+            exit 1
+          fi
 
       - name: Verify stable tag is available
         if: inputs.dry_run != true

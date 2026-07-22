@@ -82,7 +82,9 @@ The bump PR's non-author review comes from `github-actions[bot]` via `auto-appro
 
 ### Branch protection
 
-`main` does **not** require protection for this flow. The release bot has `write` and merges the auto-approved bump PR directly; publish safety comes from the `release` environment gate plus publish-before-merge, not from branch rules. Requiring approving reviews on `main` would only block the bot's merge (its `github-actions[bot]` approval may not count toward a required-review rule) without adding safety the gate doesn't already provide.
+Keep `main`'s branch protection enabled for everyone else — it still guards every other push (accidental or from a compromised token) against bypassing CI and review, which has nothing to do with the release flow. Rather than removing protection outright, add `aghast-release-review-bot` to the rule's **bypass list** (Settings > Branches > main > "Allow specified actors to bypass required pull requests"): this lets the bot merge its own auto-approved bump PR (its `github-actions[bot]` approval may not count toward a required-review rule) while `main` stays protected for every other push. Publish safety itself still comes from the `release` environment gate plus publish-before-merge, not from branch rules — the bypass list only needs to cover the release bot's own merge step.
+
+Do not rely on removing branch protection to "clear" an OpenSSF Scorecard Branch-Protection alert: that check generally scores *higher* when protections (required reviews, required status checks, no force-push) are present, so dropping protection entirely is more likely to lower the score than clear it. If a specific alert is about admins/bots being able to bypass required reviews, a scoped bypass list (above) addresses that directly without giving up the rest of the protection. Verify the actual before/after Scorecard output before treating branch-protection changes as a documented win.
 
 If a release fixes a disclosed security vulnerability, update the generated GitHub Release notes to explicitly call out the fix. Include the CVE ID when one has been assigned.
 
