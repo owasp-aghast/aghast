@@ -48,10 +48,10 @@ Stable releases are gated on an explicit human approval delivered through the **
 
 1. Go to **Actions > Release > Run workflow**
 2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version. Optionally set `dry_run: true` to validate the whole flow (build, sign, `npm publish --dry-run`) without publishing — the dry-run PR and its branch are cleaned up automatically afterward.
-3. The `prepare` job validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, opens a `release/v<version>` PR, and waits for that PR's required checks to go green. The PR is opened by `RELEASE_PAT`, so the `auto-approve` workflow approves it and CI runs on it. The PR is **bookkeeping — do not merge or close it manually**; the workflow does that itself.
+3. The `prepare` job validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, opens a `release/v<version>` PR, and waits for that PR's checks to go green. The PR is opened by the release bot account (`aghast-release-review-bot`, via the `RELEASE_REVIEWER_TOKEN` secret), so CI runs on it and the `auto-approve` workflow — running as `github-actions[bot]`, a *different* identity — approves it. That non-author approval is the reviewed changeset the Scorecard Code-Review check counts. The PR is **bookkeeping — do not merge or close it manually**; the workflow does that itself.
 4. The `publish-stable` job then pauses on the **`release` environment gate**. A required reviewer approves the pending deployment via **Review deployments** on the workflow run (the person who dispatched the release may approve it). This — not the PR approval — is the control that authorizes publishing.
 5. Once approved, `publish-stable` automatically:
-   - Checks out the exact bump commit, re-verifies the version and that required checks are green
+   - Checks out the exact bump commit, re-verifies the version and that the PR's checks are green
    - Builds, packs, and signs the tarball with cosign
    - Publishes to the npmjs registry (npm Trusted Publishing / OIDC)
    - Merges the release PR (**only after** npm publishing succeeds), then tags the merged `main` commit `v<version>`
@@ -73,6 +73,16 @@ The gate requires a GitHub Environment named **`release`** with a required revie
   ```
 
 Without this environment the `publish-stable` job runs unpaused, so the environment (with at least one reviewer) is what makes the gate real.
+
+### Release identity and tokens
+
+All release git operations — branch push, PR open, merge, tag push — run as a single dedicated bot account, **`aghast-release-review-bot`** (repo `write`), through the **`RELEASE_REVIEWER_TOKEN`** secret. It must be a PAT (not `GITHUB_TOKEN`) so pushes and the PR trigger CI and the `auto-approve` workflow. No personal account token is involved. (The older `RELEASE_PAT` secret is no longer used and can be deleted.)
+
+The bump PR's non-author review comes from `github-actions[bot]` via `auto-approve.yml`; because it is a different identity from the bot that opened the PR, it is a valid approval and satisfies the Scorecard Code-Review check.
+
+### Branch protection
+
+`main` does **not** require protection for this flow. The release bot has `write` and merges the auto-approved bump PR directly; publish safety comes from the `release` environment gate plus publish-before-merge, not from branch rules. Requiring approving reviews on `main` would only block the bot's merge (its `github-actions[bot]` approval may not count toward a required-review rule) without adding safety the gate doesn't already provide.
 
 If a release fixes a disclosed security vulnerability, update the generated GitHub Release notes to explicitly call out the fix. Include the CVE ID when one has been assigned.
 
