@@ -44,18 +44,35 @@ The three `test:<tool>` scripts run real integration tests against external bina
 
 ## Releasing
 
-Stable releases are gated on an explicit **maintainer approval** — the dispatch run only *prepares* a release PR; publication happens when a maintainer approves it.
+Stable releases are gated on an explicit human approval delivered through the **`release` GitHub Environment**: the dispatched run *prepares* the release and then pauses at a deployment gate; publication happens only when a required reviewer approves it.
 
 1. Go to **Actions > Release > Run workflow**
 2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version. Optionally set `dry_run: true` to validate the whole flow (build, sign, `npm publish --dry-run`) without publishing — the dry-run PR and its branch are cleaned up automatically afterward.
-3. The dispatched run validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, and opens a `release/v<version>` PR. It does **not** publish.
-4. A repository **maintainer or admin** reviews and approves the release PR (the person who dispatched the release can approve it — the PR is opened under a distinct reviewer identity to make that possible). Do **not** merge the PR manually.
-5. The approval (or, if approval preceded CI, the successful CI completion) triggers publication, which automatically:
-   - Verifies the PR is an in-repo, maintainer-approved release PR with all required checks green
+3. The `prepare` job validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, opens a `release/v<version>` PR, and waits for that PR's required checks to go green. The PR is opened by `RELEASE_PAT`, so the `auto-approve` workflow approves it and CI runs on it. The PR is **bookkeeping — do not merge or close it manually**; the workflow does that itself.
+4. The `publish-stable` job then pauses on the **`release` environment gate**. A required reviewer approves the pending deployment via **Review deployments** on the workflow run (the person who dispatched the release may approve it). This — not the PR approval — is the control that authorizes publishing.
+5. Once approved, `publish-stable` automatically:
+   - Checks out the exact bump commit, re-verifies the version and that required checks are green
    - Builds, packs, and signs the tarball with cosign
-   - Publishes to the npmjs registry
-   - Merges the release PR (only after npm publishing succeeds), then tags the merged `main` commit `v<version>`
+   - Publishes to the npmjs registry (npm Trusted Publishing / OIDC)
+   - Merges the release PR (**only after** npm publishing succeeds), then tags the merged `main` commit `v<version>`
    - Creates a GitHub Release with the tarball attached
+
+Publishing happens **before** the merge on purpose: if `npm publish` fails, `main` is never advanced ahead of the registry, and the still-open PR can simply be closed.
+
+### One-time setup: the `release` environment
+
+The gate requires a GitHub Environment named **`release`** with a required reviewer. A maintainer creates it once, in either the UI or via the API:
+
+- **UI:** **Settings > Environments > New environment > `release`**, then add **Required reviewers** (the maintainers who may authorize a publish). Leave *Prevent self-review* off if the sole maintainer needs to approve their own releases.
+- **API** (adds the current user as reviewer):
+
+  ```bash
+  USER_ID=$(gh api users/tghosth --jq .id)
+  gh api --method PUT repos/owasp-aghast/aghast/environments/release \
+    -f "reviewers[][type]=User" -F "reviewers[][id]=$USER_ID"
+  ```
+
+Without this environment the `publish-stable` job runs unpaused, so the environment (with at least one reviewer) is what makes the gate real.
 
 If a release fixes a disclosed security vulnerability, update the generated GitHub Release notes to explicitly call out the fix. Include the CVE ID when one has been assigned.
 
