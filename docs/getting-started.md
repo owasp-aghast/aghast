@@ -24,7 +24,7 @@ This guide walks you through installing aghast and setting up your environment.
 ## 1. Install aghast
 
 ```bash
-npm install -g @owasp-aghast/aghast@0.8.4
+npm install -g @owasp-aghast/aghast@0.9.0
 ```
 
 To uninstall:
