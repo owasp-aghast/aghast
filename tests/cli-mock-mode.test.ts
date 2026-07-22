@@ -295,6 +295,36 @@ describe('CLI mock mode: FAIL scenarios', () => {
     assert.equal(summary.totalIssues, 1);
   });
 
+  it('hostile AI description is escaped in the Markdown report', async () => {
+    const hostileFixture = resolve(__dirname, 'fixtures', 'ai-responses', 'hostile-fields-response.json');
+    await runCLI(
+      { AGHAST_MOCK_AI: hostileFixture },
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'markdown'],
+    );
+    const md = await readFile(markdownOutputFile, 'utf-8');
+    // Angle brackets escaped → no active <script> tag survives.
+    assert.ok(!md.includes('<script>'), 'raw <script> must not appear in Markdown');
+    assert.ok(md.includes('\\<script\\>'), 'angle brackets should be backslash-escaped');
+    // Pipes and backticks escaped so they can't corrupt structure.
+    assert.ok(md.includes('\\| pipe'), 'pipe should be escaped');
+    assert.ok(md.includes('\\`backtick\\`'), 'backticks should be escaped');
+    // Leading `=` (setext-underline marker) escaped so it can't restructure text.
+    assert.ok(md.includes('\\=cmd'), 'leading formula/setext char should be escaped');
+  });
+
+  it('hostile AI description is formula-guarded in the CSV report', async () => {
+    const hostileFixture = resolve(__dirname, 'fixtures', 'ai-responses', 'hostile-fields-response.json');
+    await runCLI(
+      { AGHAST_MOCK_AI: hostileFixture },
+      [repoDir, '--config-dir', singleCheckConfigDir, '--output-format', 'csv'],
+    );
+    const csv = await readFile(csvOutputFile, 'utf-8');
+    // The description starts with `=` → must be prefixed with a quote so a
+    // spreadsheet treats it as text, not a formula.
+    assert.ok(csv.includes("'=cmd"), 'formula-triggering description must be quote-guarded');
+    assert.ok(!/(^|,)=cmd/m.test(csv), 'an unguarded =cmd field must not appear');
+  });
+
   it('issues are enriched with checkId and checkName from config', async () => {
     await runCLI({
       AGHAST_MOCK_AI: failFixtureRepo,
