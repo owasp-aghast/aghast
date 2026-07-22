@@ -8,8 +8,11 @@ permissions: {}
 
 jobs:
   auto-approve:
-    # Release PRs require an explicit maintainer approval before publication.
-    if: github.event.repository.name == 'aghast' && !startsWith(github.event.pull_request.head.ref, 'release/v') && !startsWith(github.event.pull_request.head.ref, 'release-test/v')
+    # Release bump PRs are auto-approved too: publication is gated by the
+    # `release` GitHub Environment on the publish-stable job, not by this
+    # approval. Approving the bump PR only lets the Release workflow merge it
+    # after npm succeeds, and records a reviewed changeset for Scorecard.
+    if: github.event.repository.name == 'aghast'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
