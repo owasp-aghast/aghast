@@ -5,6 +5,7 @@ import {
   fencedCode,
   inlineCode,
   languageForFile,
+  escapeMarkdownText,
 } from '../src/formatters/markdown-formatter.js';
 import type { ScanResults } from '../src/types.js';
 
@@ -260,6 +261,21 @@ describe('MarkdownFormatter — mixed scan', () => {
     assert.ok(!section.includes('totalCostUsd'), 'cost must not appear under CI Metadata');
     assert.ok(!section.includes('1.23'));
   });
+
+  it('collapses a bare CR (not just CRLF/LF) in a CI-metadata value so it cannot inject a heading', () => {
+    // CI env vars are attacker-influenceable on forked-PR builds. A lone `\r`
+    // is still a CommonMark line ending; escapeInlineText must collapse it to
+    // a space like CRLF/LF, or the bullet splits into two lines and a leading
+    // `#` on the second becomes a real heading.
+    const md = formatter.format(makeResults({
+      metadata: { ciMetadata: { pipelineSource: 'foo\r# Fake Heading' } },
+    }));
+    assert.ok(md.includes('- **Trigger:** foo # Fake Heading'), 'bare CR must collapse to a space');
+    assert.ok(
+      !md.split('\n').some((l) => l === '# Fake Heading'),
+      'must not emit a real heading line',
+    );
+  });
 });
 
 describe('MarkdownFormatter — all-error scan', () => {
@@ -395,6 +411,150 @@ describe('inlineCode', () => {
   it('flattens newlines so it is safe inside a table cell', () => {
     assert.equal(inlineCode('a\nb'), '`a b`');
   });
+
+  it('flattens a bare CR too (CommonMark treats it as a line ending)', () => {
+    // A lone `\r` (no trailing `\n`) is still a CommonMark line ending. Left
+    // uncollapsed, it would split the surrounding Markdown into two physical
+    // lines before the backtick span closes — `value` here is often
+    // AI-response-controlled (e.g. issue.file), so this is a real injection
+    // vector, not just a cosmetic gap.
+    assert.equal(inlineCode('a\rb'), '`a b`');
+  });
+});
+
+describe('escapeMarkdownText', () => {
+  it('escapes backslash first, then inline formatting characters', () => {
+    // Backslash must be doubled before other escapes are inserted, so an input
+    // `a\*b` becomes `a\\\*b` (literal backslash, then escaped asterisk).
+    assert.equal(escapeMarkdownText('a\\*b'), 'a\\\\\\*b');
+  });
+
+  it('neutralises inline HTML by escaping angle brackets', () => {
+    // Per CommonMark/GFM, `\<` renders as a literal `<`, so the tag never
+    // becomes active HTML.
+    assert.equal(
+      escapeMarkdownText('<script>alert(1)</script>'),
+      '\\<script\\>alert(1)\\</script\\>',
+    );
+  });
+
+  it('escapes each inline-formatting character', () => {
+    assert.equal(escapeMarkdownText('`*_[]<>|~'), '\\`\\*\\_\\[\\]\\<\\>\\|\\~');
+  });
+
+  it('preserves newlines but escapes each line independently', () => {
+    assert.equal(escapeMarkdownText('a|b\nc`d'), 'a\\|b\nc\\`d');
+  });
+
+  it('normalises CRLF to LF', () => {
+    assert.equal(escapeMarkdownText('a\r\nb'), 'a\nb');
+  });
+
+  it('normalises a bare CR to LF too (CommonMark treats it as a line ending)', () => {
+    // A lone `\r` (no following `\n`) is still a line ending per CommonMark/GFM.
+    // If left unsplit, content after it would bypass the per-line block-marker
+    // escapes below and a compliant renderer would still treat it as a new line.
+    assert.equal(escapeMarkdownText('a\rb'), 'a\nb');
+  });
+
+  it('escapes a leading heading marker after a bare-CR line break', () => {
+    assert.equal(
+      escapeMarkdownText('Intro text\r# Fake Heading\rMore text'),
+      'Intro text\n\\# Fake Heading\nMore text',
+    );
+  });
+
+  it('escapes a leading heading marker so a description cannot inject a heading', () => {
+    assert.equal(escapeMarkdownText('# Not a heading'), '\\# Not a heading');
+    // Only the first marker needs escaping — the line no longer starts with `#`.
+    assert.equal(escapeMarkdownText('### x'), '\\### x');
+  });
+
+  it('escapes leading list / thematic-break / setext markers', () => {
+    assert.equal(escapeMarkdownText('- item'), '\\- item');
+    assert.equal(escapeMarkdownText('+ item'), '\\+ item');
+    assert.equal(escapeMarkdownText('=== underline'), '\\=== underline');
+    assert.equal(escapeMarkdownText('---'), '\\---');
+  });
+
+  it('escapes a leading ordered-list marker', () => {
+    assert.equal(escapeMarkdownText('1. first'), '1\\. first');
+    assert.equal(escapeMarkdownText('2) second'), '2\\) second');
+  });
+
+  it('escapes block markers even after leading indentation', () => {
+    assert.equal(escapeMarkdownText('   # indented'), '   \\# indented');
+  });
+
+  it('leaves ordinary prose untouched', () => {
+    assert.equal(escapeMarkdownText('Use a parameterized query here.'), 'Use a parameterized query here.');
+  });
+});
+
+describe('MarkdownFormatter — hostile AI-controlled description / recommendation', () => {
+  const formatter = new MarkdownFormatter();
+
+  function withIssue(description: string, recommendation?: string): ScanResults {
+    return makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1,
+        description, recommendation,
+      }],
+      summary: { totalChecks: 1, passedChecks: 0, failedChecks: 1, flaggedChecks: 0, errorChecks: 0, totalIssues: 1 },
+    });
+  }
+
+  it('escapes inline HTML in the description (no active <script> tag survives)', () => {
+    const md = formatter.format(withIssue('Payload: <script>alert(1)</script> end'));
+    assert.ok(!md.includes('<script>'), 'raw <script> tag must not appear');
+    assert.ok(md.includes('\\<script\\>'), 'angle brackets should be escaped');
+  });
+
+  it('escapes a pipe in the description so it cannot forge a table cell', () => {
+    const md = formatter.format(withIssue('a | b | c'));
+    assert.ok(md.includes('a \\| b \\| c'));
+  });
+
+  it('escapes a leading heading marker in the description', () => {
+    const md = formatter.format(withIssue('# Injected Heading'));
+    assert.ok(md.includes('\\# Injected Heading'));
+    assert.ok(!md.split('\n').some((l) => l === '# Injected Heading'), 'must not emit a real heading line');
+  });
+
+  it('escapes backticks in the description so they cannot break out into code', () => {
+    const md = formatter.format(withIssue('use `rm -rf` now'));
+    assert.ok(md.includes('use \\`rm -rf\\` now'));
+  });
+
+  it('escapes hostile content in the recommendation field too', () => {
+    const md = formatter.format(withIssue('benign', 'Fix: <img src=x onerror=alert(1)> and | pipes'));
+    // The closing `>` is escaped, so the raw tag (which needs an unescaped `>`
+    // to render) can't appear.
+    assert.ok(!md.includes('onerror=alert(1)>'), 'raw <img ...> tag must not appear');
+    assert.ok(md.includes('\\<img src=x onerror=alert(1)\\> and \\| pipes'));
+  });
+
+  it('a bare CR in issue.file cannot inject a heading via inlineCode in the Issue title', () => {
+    // issue.file is parsed verbatim from the AI's JSON response and rendered
+    // via inlineCode() in the "#### Issue N: `file` lines ..." heading (and
+    // the Location bullet). A lone `\r` is still a CommonMark line ending; if
+    // inlineCode doesn't collapse it, the backtick span never closes and a
+    // leading `#` on the "next line" renders as a real heading.
+    const md = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts\r# Fake Heading', startLine: 1, endLine: 2,
+        description: 'd',
+      }],
+      summary: { totalChecks: 1, passedChecks: 0, failedChecks: 1, flaggedChecks: 0, errorChecks: 0, totalIssues: 1 },
+    }));
+    assert.ok(md.includes('`a.ts # Fake Heading`'), 'bare CR in file must collapse to a space inside the code span');
+    assert.ok(
+      !md.split('\n').some((l) => l === '# Fake Heading'),
+      'must not emit a real heading line',
+    );
+  });
 });
 
 describe('MarkdownFormatter — escape edge cases', () => {
@@ -435,6 +595,19 @@ describe('MarkdownFormatter — escape edge cases', () => {
     // Count of unescaped pipes (5 separators for 5 columns + leading | makes 6).
     const pipes = (rowLine!.match(/(?<!\\)\|/g) || []).length;
     assert.equal(pipes, 6, `expected 6 unescaped pipes, got ${pipes} in row: ${rowLine}`);
+  });
+
+  it('checkName with a bare CR does not split the table row across lines', () => {
+    // A lone `\r` is still a CommonMark line ending; escapeTableCell must
+    // collapse it to a space like CRLF/LF, or a multi-line cell would break
+    // the table's row structure.
+    const md = formatter.format(makeResults({
+      checks: [{ checkId: 'c-cr', checkName: 'foo\rbar', status: 'PASS', issuesFound: 0, executionTime: 1 }],
+      summary: { totalChecks: 1, passedChecks: 1, failedChecks: 0, flaggedChecks: 0, errorChecks: 0, totalIssues: 0 },
+    }));
+    assert.ok(md.includes('foo bar'), 'bare CR must collapse to a space');
+    const rowLine = md.split('\n').find((l) => l.includes('c-cr'));
+    assert.ok(rowLine && rowLine.includes('foo bar'), 'row must stay on a single line');
   });
 
   it('issue.file containing a backtick is wrapped in a longer fence (not broken)', () => {
@@ -640,5 +813,25 @@ describe('MarkdownFormatter: cost and judge verdicts', () => {
     const tick = String.fromCharCode(96); // backtick
     assert.ok(out.includes(bs + tick + 'raw' + bs + tick), 'backticks in rationale must be escaped');
     assert.ok(out.includes(bs + '|'), 'pipes in rationale must be escaped');
+  });
+
+  it('collapses a bare CR in the judge rationale so it cannot inject a heading', () => {
+    const out = formatter.format(makeResults({
+      checks: [{ checkId: 'c1', checkName: 'C1', status: 'FAIL', issuesFound: 1, executionTime: 1 }],
+      issues: [{
+        checkId: 'c1', checkName: 'C1', file: 'a.ts', startLine: 1, endLine: 1,
+        description: 'x',
+        judge: {
+          verdict: 'true_positive', confidence: 0.85,
+          rationale: 'foo\r# Fake Heading',
+          model: 'claude-opus-4-7', provider: 'claude-code',
+        },
+      }],
+    }));
+    assert.ok(out.includes('- **Rationale:** foo # Fake Heading'), 'bare CR must collapse to a space');
+    assert.ok(
+      !out.split('\n').some((l) => l === '# Fake Heading'),
+      'must not emit a real heading line',
+    );
   });
 });

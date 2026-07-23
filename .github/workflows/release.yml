@@ -7,21 +7,44 @@ on:
         description: 'Release version. Stable: x.y.z (e.g. 0.4.4, 0.5.0, 1.0.0). Prerelease: x.y.z-<id>.<n>, counter >= 1 (e.g. 0.5.0-beta.1, 1.0.0-rc.2).'
         required: true
         type: string
+      dry_run:
+        description: 'Validate the release flow without publishing, merging, tagging, or creating a GitHub Release.'
+        required: false
+        default: false
+        type: boolean
 
 permissions: read-all
 
+# One release per version at a time. cancel-in-progress is false so a second
+# dispatch of the same version queues rather than aborting an in-flight publish.
+concurrency:
+  group: release-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
 jobs:
+  # A human dispatches this workflow (which already requires write/admin access),
+  # so there is no separate approval gate. The single stable-release refinement
+  # over a plain push-to-main is that the version bump lands via an auto-approved
+  # PR: it is opened by the release bot (`aghast-release-review-bot`) and approved
+  # by `github-actions[bot]` (auto-approve.yml) — two different identities, so it
+  # is a genuine non-author review that the Scorecard Code-Review check counts,
+  # instead of an unreviewed direct push to `main`.
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
-      id-token: write
+      pull-requests: write
+      actions: read # gh pr checks --watch reads the bump PR's check runs
+      id-token: write # npm Trusted Publishing (OIDC)
 
     steps:
+      # RELEASE_REVIEWER_TOKEN is the release bot's PAT (account
+      # `aghast-release-review-bot`) with Contents: write + Pull requests: write.
+      # It must be a PAT (not GITHUB_TOKEN) so the push and PR trigger CI and the
+      # auto-approve workflow.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          token: ${{ secrets.RELEASE_PAT }}
+          token: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
 
       - name: Validate version input and detect release type
         id: detect
@@ -46,7 +69,7 @@ jobs:
             BASE_VERSION="${INPUT_VERSION%%-*}"
             DIST_TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[1-9][0-9]*$/\1/')
           else
-            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (stable) or x.y.z-<id>.<n> with <n> >= 1 (prerelease)."
+            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (stable) or x.y.z-<id>.<n> with <n> >= 1."
             exit 1
           fi
 
@@ -56,9 +79,6 @@ jobs:
           fi
 
           # Base must be strictly greater than the current stable's base.
-          # CURRENT_VERSION is stripped of any prerelease suffix as a no-op
-          # in the normal flow (main only holds stable versions) and as a
-          # safety net if package.json was manually edited.
           CURRENT_BASE="${CURRENT_VERSION%%-*}"
           IS_GREATER=$(node -e "
             const [aMaj, aMin, aPat] = process.argv[1].split('.').map(Number);
@@ -67,59 +87,111 @@ jobs:
             console.log(gt ? 'yes' : 'no');
           " "$BASE_VERSION" "$CURRENT_BASE")
           if [ "$IS_GREATER" != "yes" ]; then
-            if [ "$IS_PRERELEASE" = "true" ]; then
-              echo "::error::Prerelease base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
-            else
-              echo "::error::Version $INPUT_VERSION is not greater than current version $CURRENT_VERSION"
-            fi
+            echo "::error::Release base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
             exit 1
           fi
 
-          # For prereleases, early-exit if the tag already exists on the
-          # remote. `git push --atomic` below is the authoritative guard.
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
-              echo "::error::Tag v$INPUT_VERSION already exists on the remote"
-              exit 1
-            fi
-            echo "Publishing prerelease v$INPUT_VERSION with npm dist-tag '$DIST_TAG' (current stable: v$CURRENT_BASE)"
-          else
-            echo "Releasing v$INPUT_VERSION (current: v$CURRENT_VERSION)"
+          # The remote ref is the authoritative duplicate-release guard for
+          # both stable and prerelease tags.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$INPUT_VERSION already exists on the remote"
+            exit 1
           fi
 
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
+      # Verifies the release starts from a known-good main commit. Must run after
+      # checkout and before any local commit (the version bump below).
       - uses: ./.github/release-actions/wait-for-ci
 
-      - name: Update version references (stable)
+      # ── STABLE: land the version bump on main via an auto-approved PR ──────
+      - name: Open auto-approved version-bump PR (stable)
+        id: bump
         if: steps.detect.outputs.is_prerelease == 'false'
         env:
+          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            BRANCH="release-test/v$INPUT_VERSION"
+            TITLE="test: release v$INPUT_VERSION"
+            BODY=$(printf '## Dry-run stable-release validation for v%s\n\n**Do not merge.** This PR exists only so the Release workflow can validate build, signing, and an npm publish dry-run. The workflow closes it automatically.' "$INPUT_VERSION")
+          else
+            BRANCH="release/v$INPUT_VERSION"
+            TITLE="chore: release v$INPUT_VERSION"
+            BODY=$(printf '## Automated version bump for v%s\n\nThe **Release** workflow opens, auto-approves, and merges this PR itself as part of publishing — **do not merge or close it manually.**' "$INPUT_VERSION")
+          fi
+
+          # A leftover branch/PR from a previous dry-run of the same version is
+          # disposable — close its PR and delete the branch before recreating.
+          # A real release branch that already exists is an error.
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry-run branch $BRANCH already exists; closing its PR and deleting the branch before recreating."
+              if ! gh pr close "$BRANCH" --delete-branch; then
+                echo "No open PR found for $BRANCH (or close failed); deleting the branch directly."
+                git push origin --delete "$BRANCH"
+              fi
+            else
+              echo "::error::Release branch $BRANCH already exists"
+              exit 1
+            fi
+          fi
+
           node .github/scripts/update-version-refs.cjs "$INPUT_VERSION"
 
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch --create "$BRANCH"
+          git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
+          git commit -m "chore: release v$INPUT_VERSION"
+          git push --set-upstream origin "$BRANCH"
+
+          PR_URL=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" \
+            -f title="$TITLE" \
+            -f head="$BRANCH" \
+            -f base=main \
+            -f body="$BODY" \
+            --jq .html_url)
+          echo "Opened $PR_URL"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${PR_URL##*/}" >> "$GITHUB_OUTPUT"
+
+      # Wait for the bump PR's checks (opened by the bot, so CI and auto-approve
+      # both fire). The working tree is already this exact commit, so once the
+      # checks pass we build and publish it directly, then merge — the checks we
+      # waited on are also what main's strict rule requires to merge.
+      - name: Wait for the bump PR's checks (stable)
+        if: steps.detect.outputs.is_prerelease == 'false'
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Give checks a moment to register on the freshly-pushed head so
+          # --watch doesn't return immediately on "no checks reported".
+          for _ in $(seq 1 18); do
+            if [ -n "$(gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json name --jq '.[].name' 2>/dev/null)" ]; then
+              break
+            fi
+            echo "Waiting for checks to register on #$PR_NUMBER..."
+            sleep 10
+          done
+          gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --watch --fail-fast
+
+      # ── PRERELEASE: publish from a runner-only bump; main is untouched ─────
       - name: Bump version in runner only (prerelease)
         if: steps.detect.outputs.is_prerelease == 'true'
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: node .github/scripts/update-version-refs.cjs "$INPUT_VERSION" --prerelease
 
-      - name: Commit and push version bump (stable)
-        if: steps.detect.outputs.is_prerelease == 'false'
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
-          git commit -m "chore: release v$INPUT_VERSION"
-          git push
-          git tag "v$INPUT_VERSION"
-          git push origin "v$INPUT_VERSION"
-
       - name: Create throwaway commit and push tag only (prerelease)
-        if: steps.detect.outputs.is_prerelease == 'true'
+        if: steps.detect.outputs.is_prerelease == 'true' && inputs.dry_run != true
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -128,39 +200,83 @@ jobs:
           git add package.json package-lock.json
           git commit -m "chore: prerelease v$INPUT_VERSION"
           git tag "v$INPUT_VERSION"
-          # Push the tag only — main is not modified. `--atomic` makes the
-          # tag creation fail server-side if the ref already exists (e.g. a
-          # concurrent workflow dispatch tagged the same version), rather
-          # than silently diverging.
+          # Push the tag only — main is not modified. `--atomic` fails server-side
+          # if the ref already exists rather than diverging.
           git push --atomic origin "v$INPUT_VERSION"
 
+      # Build/sign from the current working tree: for stable that is the bump
+      # commit (== the PR head we just validated); for prerelease the runner bump.
       - name: Build, pack, and sign
         uses: ./.github/release-actions/build-pack-sign
         with:
           version: ${{ inputs.version }}
 
-      - name: Publish to npmjs (stable)
-        if: steps.detect.outputs.is_prerelease == 'false'
-        run: npm publish --access public --provenance
-
-      - name: Publish to npmjs (prerelease)
-        if: steps.detect.outputs.is_prerelease == 'true'
-        run: npm publish --access public --provenance --tag "${{ steps.detect.outputs.dist_tag }}"
-
-      - name: Create GitHub Release (stable)
+      # Publish BEFORE merging the stable PR, so a failed publish never advances
+      # main ahead of the registry.
+      - name: Publish stable release to npmjs
         if: steps.detect.outputs.is_prerelease == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          gh release create "v$INPUT_VERSION" \
-            --title "v$INPUT_VERSION" \
-            --generate-notes \
-            "owasp-aghast-aghast-${INPUT_VERSION}.tgz" \
-            "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --provenance --dry-run
+          else
+            npm publish --access public --provenance
+          fi
 
-      - name: Create GitHub Release (prerelease)
+      - name: Publish prerelease to npmjs
         if: steps.detect.outputs.is_prerelease == 'true'
+        env:
+          DIST_TAG: ${{ steps.detect.outputs.dist_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --provenance --tag "$DIST_TAG" --dry-run
+          else
+            npm publish --access public --provenance --tag "$DIST_TAG"
+          fi
+
+      # ── STABLE real run: merge the auto-approved PR, then tag + release ────
+      - name: Merge published release PR (stable)
+        if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
+
+      - name: Tag merged stable release and create GitHub Release
+        if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main --depth=1
+          git checkout --detach origin/main
+          if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+            echo "::error::Merged main does not contain version $VERSION."
+            exit 1
+          fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --generate-notes \
+            "owasp-aghast-aghast-${VERSION}.tgz" \
+            "owasp-aghast-aghast-${VERSION}.tgz.sigstore"
+
+      # ── STABLE dry run: leave nothing behind ──────────────────────────────
+      - name: Clean up dry-run release PR and branch (stable)
+        if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -f state=closed
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"
+
+      - name: Create prerelease GitHub Release
+        if: steps.detect.outputs.is_prerelease == 'true' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}

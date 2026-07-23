@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "file": "src/example.ts",
+      "startLine": 3,
+      "endLine": 5,
+      "description": "=cmd|'/C calc' then | pipe and <script>alert(1)</script> plus `backtick`"
+    }
+  ]
+}

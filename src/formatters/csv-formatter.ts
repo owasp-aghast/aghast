@@ -59,10 +59,42 @@ const CSV_HEADERS = [
   'judgeRationale',
 ] as const;
 
-/** Escapes a single CSV field per RFC 4180. */
+/**
+ * Leading characters that make Excel / Google Sheets / LibreOffice interpret a
+ * cell as a formula rather than text. A field beginning with one of these — in
+ * AI-authored free text (`description`, `recommendation`, judge `rationale`), it
+ * is attacker-influenceable via crafted repo content — could execute a formula
+ * (e.g. `=HYPERLINK`, `=cmd|...`, `+`/`-`/`@` variants, or DDE) when the CSV is
+ * opened. See OWASP "CSV Injection".
+ */
+const FORMULA_TRIGGERS = new Set(['=', '+', '-', '@', '\t', '\r', '\n']);
+
+/**
+ * Neutralises spreadsheet formula injection by prefixing a single quote when the
+ * value starts with a formula trigger. The `'` is the conventional OWASP
+ * mitigation: spreadsheets treat a leading apostrophe as "this cell is text" and
+ * do not display it, so the value reads unchanged while never being evaluated.
+ * Applied to the raw value *before* RFC-4180 quoting so both defences compose.
+ */
+function neutralizeFormula(str: string): string {
+  return str.length > 0 && FORMULA_TRIGGERS.has(str[0]) ? `'${str}` : str;
+}
+
+/**
+ * Escapes a single CSV field. Two independent defences:
+ *   1. Spreadsheet formula injection — {@link neutralizeFormula} (see OWASP).
+ *      Only applied to `string` values: the formula-trigger set includes `-`,
+ *      and genuinely numeric columns (`startLine`, `endLine`,
+ *      `judge.confidence`) can legitimately start with `-` (or, in principle,
+ *      be produced with other trigger prefixes) — those are never
+ *      attacker-controlled free text, so quoting them as text would corrupt
+ *      the number for no security benefit.
+ *   2. CSV structure — RFC 4180 quoting: fields containing `,`, `"`, CR or LF
+ *      are wrapped in double quotes with embedded `"` doubled.
+ */
 export function escapeCsvField(value: string | number | undefined): string {
   if (value === undefined || value === null) return '';
-  const str = String(value);
+  const str = typeof value === 'string' ? neutralizeFormula(value) : String(value);
   // Wrap in quotes if it contains a comma, quote, CR, or LF.
   if (/[",\r\n]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
