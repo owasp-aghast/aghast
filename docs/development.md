@@ -44,37 +44,14 @@ The three `test:<tool>` scripts run real integration tests against external bina
 
 ## Releasing
 
-Stable releases are gated on an explicit human approval delivered through the **`release` GitHub Environment**: the dispatched run *prepares* the release and then pauses at a deployment gate; publication happens only when a required reviewer approves it.
+A maintainer dispatches the release. Dispatching already requires write/admin access, so there is **no separate approval gate** — the one refinement over a plain push-to-`main` is that the stable version bump lands via an **auto-approved PR** rather than a direct push, so it counts as a reviewed changeset for Scorecard's Code-Review check.
 
 1. Go to **Actions > Release > Run workflow**
 2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version. Optionally set `dry_run: true` to validate the whole flow (build, sign, `npm publish --dry-run`) without publishing — the dry-run PR and its branch are cleaned up automatically afterward.
-3. The `prepare` job validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, opens a `release/v<version>` PR, and waits for that PR's checks to go green. The PR is opened by the release bot account (`aghast-release-review-bot`, via the `RELEASE_REVIEWER_TOKEN` secret), so CI runs on it and the `auto-approve` workflow — running as `github-actions[bot]`, a *different* identity — approves it. That non-author approval is the reviewed changeset the Scorecard Code-Review check counts. The PR is **bookkeeping — do not merge or close it manually**; the workflow does that itself.
-4. The `publish-stable` job then pauses on the **`release` environment gate**. A required reviewer approves the pending deployment via **Review deployments** on the workflow run (the person who dispatched the release may approve it). This — not the PR approval — is the control that authorizes publishing.
-5. Once approved, `publish-stable` automatically:
-   - Checks out the exact bump commit, re-verifies the version and that the PR's checks are green
-   - Builds, packs, and signs the tarball with cosign
-   - Publishes to the npmjs registry (npm Trusted Publishing / OIDC)
-   - Merges the release PR (**only after** npm publishing succeeds), then tags the merged `main` commit `v<version>`
-   - Creates a GitHub Release with the tarball attached
+3. The workflow validates the version, waits for CI on `main`, updates `package.json` and the install command in `docs/getting-started.md`, and opens a `release/v<version>` PR. The PR is opened by the release bot (`aghast-release-review-bot`, via `RELEASE_REVIEWER_TOKEN`), so CI runs on it and the `auto-approve` workflow — running as `github-actions[bot]`, a *different* identity — approves it. That non-author approval is the reviewed changeset the Scorecard Code-Review check counts. The PR is **bookkeeping — do not merge or close it manually**; the workflow does that itself.
+4. Once the PR's checks pass, the workflow builds, signs, and publishes to npm (Trusted Publishing / OIDC), then merges the PR, tags the merged `main` commit `v<version>`, and creates a GitHub Release with the tarball attached.
 
 Publishing happens **before** the merge on purpose: if `npm publish` fails, `main` is never advanced ahead of the registry, and the still-open PR can simply be closed.
-
-Because the approval can hold `publish-stable` for a while, it also guards against the release going stale: it re-checks — twice, the second time immediately before the irreversible `npm publish` — that neither `main` nor the bump branch has moved since `prepare` recorded them. If either moved (which would leave the branch behind `main`'s strict "up to date" rule and make the tag diverge from what was published), it aborts **before** publishing, cleans up the bump PR/branch, and asks for a re-dispatch from current `main`. Nothing is half-released.
-
-### One-time setup: the `release` environment
-
-The gate requires a GitHub Environment named **`release`** with a required reviewer. A maintainer creates it once, in either the UI or via the API:
-
-- **UI:** **Settings > Environments > New environment > `release`**, then add **Required reviewers** (the maintainers who may authorize a publish). Leave *Prevent self-review* off if the sole maintainer needs to approve their own releases.
-- **API** (adds the current user as reviewer):
-
-  ```bash
-  USER_ID=$(gh api users/tghosth --jq .id)
-  gh api --method PUT repos/owasp-aghast/aghast/environments/release \
-    -f "reviewers[][type]=User" -F "reviewers[][id]=$USER_ID"
-  ```
-
-Without this environment the `publish-stable` job runs unpaused, so the environment (with at least one reviewer) is what makes the gate real.
 
 ### Release identity and tokens
 
@@ -86,7 +63,7 @@ The bump PR's non-author review comes from `github-actions[bot]` via `auto-appro
 
 ### Branch protection
 
-Keep `main`'s branch protection enabled for everyone else — it still guards every other push (accidental or from a compromised token) against bypassing CI and review, which has nothing to do with the release flow. Rather than removing protection outright, add `aghast-release-review-bot` to the rule's **bypass list** (Settings > Branches > main > "Allow specified actors to bypass required pull requests"): this lets the bot merge its own auto-approved bump PR (its `github-actions[bot]` approval may not count toward a required-review rule) while `main` stays protected for every other push. Publish safety itself still comes from the `release` environment gate plus publish-before-merge, not from branch rules — the bypass list only needs to cover the release bot's own merge step.
+Keep `main`'s branch protection enabled for everyone else — it still guards every other push (accidental or from a compromised token) against bypassing CI and review, which has nothing to do with the release flow. Rather than removing protection outright, add `aghast-release-review-bot` to the rule's **bypass list** (Settings > Branches > main > "Allow specified actors to bypass required pull requests"): this lets the bot merge its own auto-approved bump PR (its `github-actions[bot]` approval may not count toward a required-review rule) while `main` stays protected for every other push. Publish safety itself comes from publish-before-merge (a failed `npm publish` never advances `main`), not from branch rules — the bypass list only needs to cover the release bot's own merge step.
 
 Do not rely on removing branch protection to "clear" an OpenSSF Scorecard Branch-Protection alert: that check generally scores *higher* when protections (required reviews, required status checks, no force-push) are present, so dropping protection entirely is more likely to lower the score than clear it. If a specific alert is about admins/bots being able to bypass required reviews, a scoped bypass list (above) addresses that directly without giving up the rest of the protection. Verify the actual before/after Scorecard output before treating branch-protection changes as a documented win.
 

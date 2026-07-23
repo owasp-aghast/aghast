@@ -8,10 +8,10 @@ permissions: {}
 
 jobs:
   auto-approve:
-    # Release bump PRs are auto-approved too: publication is gated by the
-    # `release` GitHub Environment on the publish-stable job, not by this
-    # approval. Approving the bump PR only lets the Release workflow merge it
-    # after npm succeeds, and records a reviewed changeset for Scorecard.
+    # Release bump PRs are auto-approved too. This approval (by
+    # github-actions[bot]) is the non-author review that lets the Release
+    # workflow merge the bot-opened bump PR and that Scorecard Code-Review
+    # counts. It is not a security gate — a human dispatched the release.
     if: github.event.repository.name == 'aghast'
     runs-on: ubuntu-latest
     permissions:
