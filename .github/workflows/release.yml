@@ -22,32 +22,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ────────────────────────────────────────────────────────────────────────
-  # PREPARE — runs on the maintainer's workflow_dispatch. Validates the
-  # version, confirms main is CI-green, and then:
-  #   • stable:     lands the version bump on main via an auto-approved PR
-  #                 (which is what the publish-stable job later publishes and
-  #                 merges). The auto-approved PR is also the reviewed
-  #                 changeset the Scorecard Code-Review check counts.
-  #   • prerelease: publishes immediately (no approval gate), exactly as before
-  #                 — the bump lives only on a tag-only commit; main is untouched.
-  # ────────────────────────────────────────────────────────────────────────
-  prepare:
+  # A human dispatches this workflow (which already requires write/admin access),
+  # so there is no separate approval gate. The single stable-release refinement
+  # over a plain push-to-main is that the version bump lands via an auto-approved
+  # PR: it is opened by the release bot (`aghast-release-review-bot`) and approved
+  # by `github-actions[bot]` (auto-approve.yml) — two different identities, so it
+  # is a genuine non-author review that the Scorecard Code-Review check counts,
+  # instead of an unreviewed direct push to `main`.
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-      actions: read
-      id-token: write # prerelease publishes from this job via npm Trusted Publishing
-    outputs:
-      is_prerelease: ${{ steps.detect.outputs.is_prerelease }}
-      dist_tag: ${{ steps.detect.outputs.dist_tag }}
-      branch: ${{ steps.bump.outputs.branch }}
-      head_sha: ${{ steps.bump.outputs.head_sha }}
-      base_sha: ${{ steps.bump.outputs.base_sha }}
-      pr_number: ${{ steps.bump.outputs.pr_number }}
+      actions: read # gh pr checks --watch reads the bump PR's check runs
+      id-token: write # npm Trusted Publishing (OIDC)
 
     steps:
+      # RELEASE_REVIEWER_TOKEN is the release bot's PAT (account
+      # `aghast-release-review-bot`) with Contents: write + Pull requests: write.
+      # It must be a PAT (not GITHUB_TOKEN) so the push and PR trigger CI and the
+      # auto-approve workflow.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           token: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
@@ -85,9 +79,6 @@ jobs:
           fi
 
           # Base must be strictly greater than the current stable's base.
-          # CURRENT_VERSION is stripped of any prerelease suffix as a no-op
-          # in the normal flow (main only holds stable versions) and as a
-          # safety net if package.json was manually edited.
           CURRENT_BASE="${CURRENT_VERSION%%-*}"
           IS_GREATER=$(node -e "
             const [aMaj, aMin, aPat] = process.argv[1].split('.').map(Number);
@@ -110,20 +101,11 @@ jobs:
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
-      # Verifies the release starts from a known-good main commit. Must run
-      # after checkout and before any local commit (the version bump below).
+      # Verifies the release starts from a known-good main commit. Must run after
+      # checkout and before any local commit (the version bump below).
       - uses: ./.github/release-actions/wait-for-ci
 
-      # ── STABLE: land the bump on main via an auto-approved PR ──────────────
-      # RELEASE_REVIEWER_TOKEN is the dedicated release bot's PAT (account
-      # `aghast-release-review-bot`, repo write) used for ALL git operations
-      # here: branch push, PR open, and — in publish-stable — merge and tag.
-      # It must be a PAT, not GITHUB_TOKEN, so both CI and the auto-approve
-      # workflow fire on the PR. The auto-approve bot (github-actions[bot]) is a
-      # different identity, so its approval is a valid non-author review — the
-      # reviewed changeset Scorecard Code-Review counts, and what lets the bot
-      # merge. Publishing is NOT triggered by that approval; the publish-stable
-      # job's `release` environment gate is the human control.
+      # ── STABLE: land the version bump on main via an auto-approved PR ──────
       - name: Open auto-approved version-bump PR (stable)
         id: bump
         if: steps.detect.outputs.is_prerelease == 'false'
@@ -136,17 +118,16 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             BRANCH="release-test/v$INPUT_VERSION"
             TITLE="test: release v$INPUT_VERSION"
-            BODY=$(printf '## Dry-run stable-release validation for v%s\n\n**Do not merge.** This PR exists only so the Release workflow can validate build, signing, and an npm publish dry-run after the `release` deployment is approved. The workflow closes it automatically.' "$INPUT_VERSION")
+            BODY=$(printf '## Dry-run stable-release validation for v%s\n\n**Do not merge.** This PR exists only so the Release workflow can validate build, signing, and an npm publish dry-run. The workflow closes it automatically.' "$INPUT_VERSION")
           else
             BRANCH="release/v$INPUT_VERSION"
             TITLE="chore: release v$INPUT_VERSION"
-            BODY=$(printf '## ⚠️ DO NOT MERGE MANUALLY\n\nThe **Release** workflow merges this PR itself, and only **after** npm publishing succeeds.\n\nTo publish v%s: open the running **Release** workflow and approve the pending **release** deployment ("Review deployments"). Merging or closing this PR by hand will not publish anything and will leave the release half-done.' "$INPUT_VERSION")
+            BODY=$(printf '## Automated version bump for v%s\n\nThe **Release** workflow opens, auto-approves, and merges this PR itself as part of publishing — **do not merge or close it manually.**' "$INPUT_VERSION")
           fi
 
           # A leftover branch/PR from a previous dry-run of the same version is
-          # disposable — close its PR and delete the branch before recreating so
-          # we don't race a stale open PR. A real release branch that already
-          # exists is an error.
+          # disposable — close its PR and delete the branch before recreating.
+          # A real release branch that already exists is an error.
           if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
             if [ "$DRY_RUN" = "true" ]; then
               echo "Dry-run branch $BRANCH already exists; closing its PR and deleting the branch before recreating."
@@ -164,16 +145,11 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Record main's tip that this bump is based on. publish-stable uses it
-          # to detect if main advanced during the approval wait (which would
-          # leave the bump branch behind main's strict "up to date" rule).
-          BASE_SHA=$(git rev-parse HEAD)
           git switch --create "$BRANCH"
           git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
           git commit -m "chore: release v$INPUT_VERSION"
           git push --set-upstream origin "$BRANCH"
 
-          HEAD_SHA=$(git rev-parse HEAD)
           PR_URL=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" \
             -f title="$TITLE" \
             -f head="$BRANCH" \
@@ -182,32 +158,22 @@ jobs:
             --jq .html_url)
           echo "Opened $PR_URL"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "pr_number=${PR_URL##*/}" >> "$GITHUB_OUTPUT"
 
-      # Block until the bump PR's checks are green, so the human is only ever
-      # asked to approve a validated release. Watches ALL checks (not just the
-      # branch-protection "required" set), so it works whether or not main has
-      # branch protection. A hard check failure fails the release here, before
-      # the approval gate is reached.
+      # Wait for the bump PR's checks (opened by the bot, so CI and auto-approve
+      # both fire). The working tree is already this exact commit, so once the
+      # checks pass we build and publish it directly, then merge — the checks we
+      # waited on are also what main's strict rule requires to merge.
       - name: Wait for the bump PR's checks (stable)
         if: steps.detect.outputs.is_prerelease == 'false'
-        # Bound the wait so a hung check (stuck runner, external status that
-        # never reports, etc) can't tie up the runner for the whole default
-        # job timeout, the way wait-for-ci's own 600s cap (used earlier in
-        # this job) bounds its wait. This step waits longer (20m vs 10m)
-        # because it watches every check the bump PR triggers — including
-        # CodeQL, which runs on pull_request and typically takes longer than
-        # the single "CI" workflow run wait-for-ci checks on main.
         timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
         run: |
           set -euo pipefail
-          # Give the checks a moment to register on the freshly-pushed head so
-          # `--watch` doesn't return immediately on "no checks reported".
+          # Give checks a moment to register on the freshly-pushed head so
+          # --watch doesn't return immediately on "no checks reported".
           for _ in $(seq 1 18); do
             if [ -n "$(gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json name --jq '.[].name' 2>/dev/null)" ]; then
               break
@@ -215,11 +181,9 @@ jobs:
             echo "Waiting for checks to register on #$PR_NUMBER..."
             sleep 10
           done
-          # --watch blocks until every check concludes; --fail-fast exits
-          # non-zero as soon as one fails.
           gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --watch --fail-fast
 
-      # ── PRERELEASE: publish immediately, un-gated (unchanged behaviour) ────
+      # ── PRERELEASE: publish from a runner-only bump; main is untouched ─────
       - name: Bump version in runner only (prerelease)
         if: steps.detect.outputs.is_prerelease == 'true'
         env:
@@ -236,16 +200,29 @@ jobs:
           git add package.json package-lock.json
           git commit -m "chore: prerelease v$INPUT_VERSION"
           git tag "v$INPUT_VERSION"
-          # Push the tag only — main is not modified. `--atomic` makes the tag
-          # creation fail server-side if the ref already exists (e.g. a
-          # concurrent dispatch tagged the same version) rather than diverging.
+          # Push the tag only — main is not modified. `--atomic` fails server-side
+          # if the ref already exists rather than diverging.
           git push --atomic origin "v$INPUT_VERSION"
 
-      - name: Build, pack, and sign prerelease
-        if: steps.detect.outputs.is_prerelease == 'true'
+      # Build/sign from the current working tree: for stable that is the bump
+      # commit (== the PR head we just validated); for prerelease the runner bump.
+      - name: Build, pack, and sign
         uses: ./.github/release-actions/build-pack-sign
         with:
           version: ${{ inputs.version }}
+
+      # Publish BEFORE merging the stable PR, so a failed publish never advances
+      # main ahead of the registry.
+      - name: Publish stable release to npmjs
+        if: steps.detect.outputs.is_prerelease == 'false'
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --provenance --dry-run
+          else
+            npm publish --access public --provenance
+          fi
 
       - name: Publish prerelease to npmjs
         if: steps.detect.outputs.is_prerelease == 'true'
@@ -259,6 +236,45 @@ jobs:
             npm publish --access public --provenance --tag "$DIST_TAG"
           fi
 
+      # ── STABLE real run: merge the auto-approved PR, then tag + release ────
+      - name: Merge published release PR (stable)
+        if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
+
+      - name: Tag merged stable release and create GitHub Release
+        if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main --depth=1
+          git checkout --detach origin/main
+          if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+            echo "::error::Merged main does not contain version $VERSION."
+            exit 1
+          fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --generate-notes \
+            "owasp-aghast-aghast-${VERSION}.tgz" \
+            "owasp-aghast-aghast-${VERSION}.tgz.sigstore"
+
+      # ── STABLE dry run: leave nothing behind ──────────────────────────────
+      - name: Clean up dry-run release PR and branch (stable)
+        if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -f state=closed
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"
+
       - name: Create prerelease GitHub Release
         if: steps.detect.outputs.is_prerelease == 'true' && inputs.dry_run != true
         env:
@@ -271,200 +287,3 @@ jobs:
             --generate-notes \
             "owasp-aghast-aghast-${INPUT_VERSION}.tgz" \
             "owasp-aghast-aghast-${INPUT_VERSION}.tgz.sigstore"
-
-  # ────────────────────────────────────────────────────────────────────────
-  # PUBLISH-STABLE — gated by the `release` GitHub Environment. GitHub pauses
-  # this job before its first step until a required reviewer approves the
-  # deployment ("Review deployments" on the run). Everything privileged lives
-  # past that gate. Publishing happens BEFORE the PR merge so a failed publish
-  # never leaves main bumped ahead of the registry.
-  #
-  # Prereleases never reach this job (guarded below) — they publish, un-gated,
-  # from the prepare job above.
-  # ────────────────────────────────────────────────────────────────────────
-  publish-stable:
-    needs: prepare
-    if: needs.prepare.outputs.is_prerelease == 'false'
-    runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      contents: write
-      pull-requests: write
-      id-token: write # npm Trusted Publishing (OIDC)
-      checks: read # re-verify step reads check-runs for the pinned head_sha
-      statuses: read # re-verify step reads commit statuses for the pinned head_sha
-
-    steps:
-      # The bump PR's head SHA was produced by our own prepare job, so it needs
-      # no fork/author trust checks — it is not an externally-triggered event.
-      # We pin the exact SHA (not the branch tip) and re-verify below.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
-          token: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
-
-      - name: Verify checked-out release version
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          CHECKED_OUT_VERSION=$(node -p "require('./package.json').version")
-          if [ "$CHECKED_OUT_VERSION" != "$VERSION" ]; then
-            echo "::error::Checked-out package version $CHECKED_OUT_VERSION does not match release version $VERSION"
-            exit 1
-          fi
-
-      - name: Re-verify the bump PR's checks are green
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          # Backstop: prepare already blocked on green, but a check could have
-          # been re-run and failed while the deployment awaited approval — or
-          # the release branch could have moved past head_sha in the
-          # meantime. Query the pinned commit's own checks/statuses directly
-          # (not `gh pr checks`, which reports on whatever the PR's head
-          # currently is) so we validate exactly the commit that's about to
-          # be built and published.
-          RUNS_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" --paginate --slurp)
-          STATUSES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses" --paginate --slurp)
-
-          TOTAL_RUNS=$(echo "$RUNS_JSON" | jq '[.[].check_runs[]] | length')
-          NOT_GREEN_RUNS=$(echo "$RUNS_JSON" | jq '[.[].check_runs[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length')
-          TOTAL_STATUSES=$(echo "$STATUSES_JSON" | jq '[.[][]] | length')
-          NOT_GREEN_STATUSES=$(echo "$STATUSES_JSON" | jq '[.[][] | select(.state != "success")] | length')
-
-          # A PR always has at least the checks prepare already waited on, so
-          # finding none here (propagation lag, API hiccup, etc.) means we
-          # failed to verify anything — treat that as a failure rather than
-          # silently passing.
-          if [ "$((TOTAL_RUNS + TOTAL_STATUSES))" -eq 0 ]; then
-            echo "::error::No checks or statuses found for commit $HEAD_SHA — cannot verify it is green"
-            exit 1
-          fi
-          if [ "$NOT_GREEN_RUNS" != "0" ] || [ "$NOT_GREEN_STATUSES" != "0" ]; then
-            echo "::error::One or more checks/statuses on commit $HEAD_SHA are not green"
-            exit 1
-          fi
-
-      # main's strict rule requires the bump branch to be up to date to merge,
-      # and the bot's bypass covers reviews only — not strict status checks. If
-      # main advanced (or the bump branch itself moved) while the deployment
-      # awaited approval, the pinned head_sha we are about to publish is behind:
-      # the merge would be blocked by strict and the v<version> tag would diverge
-      # from what was published. Abort BEFORE publishing and clean up the bump
-      # PR/branch so a re-dispatch from current main starts clean. These are
-      # plain SHA compares, so they are reliable on the shallow pinned checkout.
-      #
-      # Cheap early check: skip build/sign entirely if the release is already
-      # stale. This alone doesn't close the race — main can still move during
-      # build+sign+the registry check below — so it's paired with an identical
-      # final check immediately before `npm publish` (the actual point of no
-      # return) further down.
-      - name: Abort if the release moved while awaiting approval
-        if: inputs.dry_run != true
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
-          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          BRANCH: ${{ needs.prepare.outputs.branch }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-        run: bash .github/scripts/check-release-not-moved.sh
-
-      - name: Verify stable tag is available
-        if: inputs.dry_run != true
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
-            echo "::error::Tag v$VERSION already exists on the remote"
-            exit 1
-          fi
-
-      - name: Build, pack, and sign stable release
-        uses: ./.github/release-actions/build-pack-sign
-        with:
-          version: ${{ inputs.version }}
-
-      - name: Check whether stable version is already published
-        id: registry
-        if: inputs.dry_run != true
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          if npm view "@owasp-aghast/aghast@$VERSION" version >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Final gate, run again immediately before the irreversible npm publish:
-      # main or the bump branch could have moved during build+sign+the
-      # registry check above, which the early check earlier in this job can't
-      # see. This is the check that actually closes the race window described
-      # there — everything after `npm publish` is cleanup (merge, tag), so
-      # this is the last point where aborting still means "nothing published".
-      - name: Re-check the release hasn't moved, immediately before publish
-        if: inputs.dry_run != true
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
-          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          BRANCH: ${{ needs.prepare.outputs.branch }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-        run: bash .github/scripts/check-release-not-moved.sh
-
-      - name: Publish stable release to npmjs
-        if: inputs.dry_run != true && steps.registry.outputs.published == 'false'
-        run: npm publish --access public --provenance
-
-      - name: Dry-run stable release publication
-        if: inputs.dry_run == true
-        run: npm publish --access public --provenance --dry-run
-
-      # Real run only: publish succeeded, so now advance main and record the tag.
-      - name: Merge published release PR
-        if: inputs.dry_run != true
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
-
-      - name: Tag merged stable release
-        if: inputs.dry_run != true
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git fetch origin main --depth=1
-          git checkout --detach origin/main
-          if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
-            echo "::error::Merged main does not contain version $VERSION."
-            exit 1
-          fi
-          git tag "v$VERSION"
-          git push origin "v$VERSION"
-
-      - name: Create stable GitHub Release
-        if: inputs.dry_run != true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          gh release create "v$VERSION" \
-            --title "v$VERSION" \
-            --generate-notes \
-            "owasp-aghast-aghast-${VERSION}.tgz" \
-            "owasp-aghast-aghast-${VERSION}.tgz.sigstore"
-
-      # Dry run leaves nothing behind: close the PR and delete its branch so the
-      # next dry run of the same version starts clean. Uses REST (not `gh pr
-      # close`, which needs GraphQL unavailable to this workflow token).
-      - name: Clean up dry-run release PR and branch
-        if: inputs.dry_run == true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          BRANCH: ${{ needs.prepare.outputs.branch }}
-        run: |
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -f state=closed
-          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"
