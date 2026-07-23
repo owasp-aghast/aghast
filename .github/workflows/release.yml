@@ -25,7 +25,7 @@ jobs:
   # A human dispatches this workflow (which already requires write/admin access),
   # so there is no separate approval gate. The single stable-release refinement
   # over a plain push-to-main is that the version bump lands via an auto-approved
-  # PR: it is opened by the release bot (`aghast-release-review-bot`) and approved
+  # PR: it is opened by the release bot (`aghast-release-bot`) and approved
   # by `github-actions[bot]` (auto-approve.yml) — two different identities, so it
   # is a genuine non-author review that the Scorecard Code-Review check counts,
   # instead of an unreviewed direct push to `main`.
@@ -38,13 +38,13 @@ jobs:
       id-token: write # npm Trusted Publishing (OIDC)
 
     steps:
-      # RELEASE_REVIEWER_TOKEN is the release bot's PAT (account
-      # `aghast-release-review-bot`) with Contents: write + Pull requests: write.
+      # RELEASE_PR_TOKEN is the release bot's PAT (account
+      # `aghast-release-bot`) with Contents: write + Pull requests: write.
       # It must be a PAT (not GITHUB_TOKEN) so the push and PR trigger CI and the
       # auto-approve workflow.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          token: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          token: ${{ secrets.RELEASE_PR_TOKEN }}
 
       - name: Validate version input and detect release type
         id: detect
@@ -110,7 +110,7 @@ jobs:
         id: bump
         if: steps.detect.outputs.is_prerelease == 'false'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
@@ -240,7 +240,7 @@ jobs:
       - name: Merge published release PR (stable)
         if: steps.detect.outputs.is_prerelease == 'false' && inputs.dry_run != true
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REVIEWER_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
           PR_NUMBER: ${{ steps.bump.outputs.pr_number }}
         run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
 
