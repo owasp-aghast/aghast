@@ -115,7 +115,7 @@ This is an [OWASP](https://owasp.org/) Incubator project, led by:
 - Josh Grossman ([josh.grossman@owasp.org](mailto:josh.grossman@owasp.org))
 - Avi Douglen ([avi.douglen@owasp.org](mailto:avi.douglen@owasp.org))
 
-[Bounce Security](https://bouncesecurity.com/) is the original contributor and continues as a **maintaining supporter** of the project.
+[Bounce Security](https://bouncesecurity.com/) is the original contributor and continues as a **maintaining supporter** of the project. See [SUPPORTERS.md](SUPPORTERS.md) for supporter recognition details.
 
 ## Contributing
 
