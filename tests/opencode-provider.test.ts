@@ -158,13 +158,13 @@ describe('OpenCodeProvider — model parsing', () => {
     assert.equal(provider.getModelName(), 'test-provider/test-model');
   });
 
-  it('defaults to opencode/hy3-preview-free when no model specified', async () => {
+  it('defaults to opencode/big-pickle when no model specified', async () => {
     const client = createMockClient({
-      providers: [{ id: 'opencode', name: 'OpenCode', models: { 'hy3-preview-free': { name: 'HY3 Preview Free' } } }],
+      providers: [{ id: 'opencode', name: 'OpenCode', models: { 'big-pickle': { name: 'Big Pickle' } } }],
     });
     const provider = new OpenCodeProvider({ _client: client as never });
     await provider.initialize({});
-    assert.equal(provider.getModelName(), 'opencode/hy3-preview-free');
+    assert.equal(provider.getModelName(), 'opencode/big-pickle');
   });
 
   it('throws on model string without slash', async () => {
