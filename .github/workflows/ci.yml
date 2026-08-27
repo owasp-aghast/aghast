@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGRESSION_TEST_MODEL: opencode/north-mini-code-free
+  REGRESSION_TEST_MODEL: opencode/big-pickle
 
 permissions:
   contents: read

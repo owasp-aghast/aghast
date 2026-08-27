@@ -20,7 +20,7 @@ import { logProgress, logDebug, logDebugFull, logTrace, logWarn, createTimer, is
 const execAsync = promisify(exec);
 
 const TAG = 'opencode-provider';
-const DEFAULT_OPENCODE_MODEL = 'opencode/hy3-preview-free';
+const DEFAULT_OPENCODE_MODEL = 'opencode/big-pickle';
 
 // Tools the agent is permitted to use — everything else is denied.
 const ALLOWED_TOOL_PERMISSIONS = new Set(['read', 'glob', 'grep', 'list']);
