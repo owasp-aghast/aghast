@@ -64,7 +64,7 @@ The repo includes six example checks demonstrating the three check types (`repos
 | 3 | [Missing API Token Decorator](#example-3-missing-api-token-decorator-static-check-opengrep-discovery) | static | Opengrep | — | Opengrep |
 | 4 | [SAST Finding Verification](#example-4-sast-finding-verification-targeted-check-sarif-input-false-positive-validation) | targeted | SARIF input | false-positive validation | API key |
 | 5 | [Various Security Vulnerabilities](#example-5-various-security-vulnerabilities-targeted-check-openant-discovery-general-vulnerability-analysis) | targeted | OpenAnt | general vulnerability discovery | API key, OpenAnt |
-| 6 | [Diff-Scoped Validation Scanning](#example-6-diff-scoped-validation-scanning-targeted-check-semgrep-discovery-with-diff-filtering) | targeted | Semgrep | custom | API key, Semgrep |
+| 6 | [Diff-Scoped Validation Scanning](#example-6-diff-scoped-validation-scanning-targeted-check-opengrep-discovery-with-diff-filtering) | targeted | Opengrep | custom | API key, Opengrep |
 
 > **Using OpenCode?** All examples that require an API key also work with the OpenCode provider. Add `--agent-provider opencode --model opencode/nemotron-3-super-free` to any `aghast scan` command below, or choose the model you want. See [Scanning → Using OpenCode](scanning.md#using-opencode) for setup.
 
@@ -74,7 +74,7 @@ The repo includes six example checks demonstrating the three check types (`repos
 
 #### Check type
 
-`repository` - analyzes the whole codebase with AI. No Semgrep needed.
+`repository` - analyzes the whole codebase with AI. No discovery scanner needed.
 
 #### What it does
 
@@ -205,7 +205,7 @@ Detects Flask route handlers that are missing the `@require_api_token` decorator
 }
 ```
 
-With `checkTarget.type` set to `static`, there is no instructions file. The Opengrep rule does all the work. Opengrep uses the same rule syntax as Semgrep:
+With `checkTarget.type` set to `static`, there is no instructions file. The Opengrep rule does all the work. Semgrep is also supported with the same rule syntax:
 
 ```yaml
 rules:
@@ -358,11 +358,11 @@ FAIL with ~8 issues: race condition in order creation, mass assignment allowing 
 
 ---
 
-### Example 6: Diff-Scoped Validation Scanning (targeted check, Semgrep discovery with diff filtering)
+### Example 6: Diff-Scoped Validation Scanning (targeted check, Opengrep discovery with diff filtering)
 
 #### Check type
 
-`targeted` with `semgrep` discovery. Functionally the same as Example 2 — Semgrep finds the code locations, the AI analyzes each one — but this example demonstrates **diff filtering**: when a diff source is supplied at scan time, findings are automatically narrowed to the code the change actually touches. No special check field is required; diff filtering is a cross-cutting behavior that activates whenever a diff source is present.
+`targeted` with `opengrep` discovery. Functionally the same as Example 2 — Opengrep finds the code locations, the AI analyzes each one — but this example demonstrates **diff filtering**: when a diff source is supplied at scan time, findings are automatically narrowed to the code the change actually touches. No special check field is required; diff filtering is a cross-cutting behavior that activates whenever a diff source is present.
 
 #### What it does
 
@@ -379,7 +379,7 @@ Finds Python endpoints that call `send_ai_query()` and checks whether each one p
   "confidence": "medium",
   "checkTarget": {
     "type": "targeted",
-    "discovery": "semgrep",
+    "discovery": "opengrep",
     "rules": "aghast-importantvalidations-diff.yaml",
     "maxTargets": 9999
   }
@@ -392,7 +392,7 @@ Note there is no diff-related field in the definition. Diff filtering is driven 
 
 `test-codebases/test-13-importantvalidations-diff/` - a Python Flask app with nine endpoints that call the AI backend across three route modules, each with differing validation coverage. The folder also ships `example.diff`, a sample unified diff that modifies two of the endpoints (`/api/v1/execute`, `/api/v1/dispatch`) and a shared `check_rate_limit` helper.
 
-#### Run it without a diff source (requires API key + Semgrep):
+#### Run it without a diff source (requires API key + Opengrep):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-13-importantvalidations-diff \

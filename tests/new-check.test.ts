@@ -625,7 +625,7 @@ describe('new-check utility', () => {
     assert.equal(checkDef.instructionsFile, undefined);
   });
 
-  it('rejects when both --semgrep-rules and --opengrep-rules are passed', async () => {
+  it('rejects when both --opengrep-rules and --semgrep-rules are passed', async () => {
     const result = await runNewCheck([
       '--config-dir', configDir,
       '--id', 'aghast-test',
@@ -638,7 +638,7 @@ describe('new-check utility', () => {
 
     assert.notEqual(result.exitCode, 0, 'Expected non-zero exit when both rules flags are passed');
     assert.ok(
-      result.stderr.includes('--semgrep-rules and --opengrep-rules'),
+      result.stderr.includes('--opengrep-rules and --semgrep-rules'),
       `Expected stderr to mention the conflict, got: ${result.stderr}`,
     );
   });
@@ -710,6 +710,73 @@ describe('new-check utility', () => {
     const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
     assert.equal(registry.checks.length, 1);
     assert.equal(registry.checks[0].id, 'aghast-retry-test');
+  });
+
+  it('defaults interactive targeted discovery to opengrep', async () => {
+    const result = await runNewCheckInteractive(
+      [
+        '--config-dir', configDir,
+        '--id', 'aghast-default-discovery',
+        '--name', 'Default Discovery',
+        '--check-type', 'targeted',
+        '--analysis-mode', 'custom',
+        '--language', 'python',
+        '--severity', 'high',
+        '--confidence', 'medium',
+        '--model', '',
+        '--repositories', '',
+        '--priority', '',
+        '--match-file-types', '',
+        '--check-overview', 'Overview text',
+        '--check-items', 'Item A',
+        '--pass-condition', 'All good',
+        '--fail-condition', 'Something bad',
+        '--flag-condition', '',
+      ],
+      [
+        '',
+        '',
+        '',
+      ],
+    );
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(
+      await readFile(resolve(checksDir, 'aghast-default-discovery', 'aghast-default-discovery.json'), 'utf-8'),
+    );
+    assert.equal(checkDef.checkTarget.discovery, 'opengrep');
+    assert.equal(checkDef.checkTarget.rules, 'aghast-default-discovery.yaml');
+  });
+
+  it('defaults interactive static discovery to opengrep', async () => {
+    const result = await runNewCheckInteractive(
+      [
+        '--config-dir', configDir,
+        '--id', 'aghast-default-static-discovery',
+        '--name', 'Default Static Discovery',
+        '--check-type', 'static',
+        '--language', 'python',
+        '--severity', 'high',
+        '--confidence', 'medium',
+        '--model', '',
+        '--repositories', '',
+        '--priority', '',
+        '--match-file-types', '',
+      ],
+      [
+        '',
+        '',
+      ],
+    );
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(
+      await readFile(resolve(checksDir, 'aghast-default-static-discovery', 'aghast-default-static-discovery.json'), 'utf-8'),
+    );
+    assert.equal(checkDef.checkTarget.discovery, 'opengrep');
+    assert.equal(checkDef.checkTarget.rules, 'aghast-default-static-discovery.yaml');
   });
 
   // ─── Static checks (formerly semgrep-only) ──────────────────────────────

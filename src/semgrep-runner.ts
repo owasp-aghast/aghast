@@ -25,15 +25,15 @@ export interface SemgrepOptions {
 
 /**
  * Configuration describing a semgrep-compatible SARIF scanner binary
- * (semgrep, opengrep, ...). Used by the shared runner helpers below.
+ * (opengrep, semgrep, ...). Used by the shared runner helpers below.
  */
 export interface SarifScannerTool {
-  /** Binary name on PATH (e.g. "semgrep", "opengrep"). */
+  /** Binary name on PATH (e.g. "opengrep", "semgrep"). */
   binary: string;
   /**
    * Environment variable that, if set, short-circuits execution and reads SARIF from the named file.
    *
-   * By design, both `SEMGREP_TOOL` and `OPENGREP_TOOL` set this to `AGHAST_MOCK_SARIF` —
+   * By design, both `OPENGREP_TOOL` and `SEMGREP_TOOL` set this to `AGHAST_MOCK_SARIF` —
    * a single shared stub env var rather than per-tool vars. Consequence: setting
    * `AGHAST_MOCK_SARIF` feeds the same SARIF fixture to every SARIF-producing tool
    * in a mixed-discovery scan; there's no way to stub only one of the two. This is
@@ -62,7 +62,7 @@ export const SEMGREP_TOOL: SarifScannerTool = {
 };
 
 /**
- * Build the Semgrep CLI arguments. Opengrep uses the same argument shape,
+ * Build the Opengrep/Semgrep CLI arguments. Opengrep uses the same argument shape,
  * so `opengrep-runner.ts` reuses this builder directly.
  */
 export function buildSemgrepArgs(

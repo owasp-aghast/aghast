@@ -112,10 +112,10 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
 };
 
 function parseFlags(args: string[]): ParsedFlags {
-  if (args.includes('--semgrep-rules') && args.includes('--opengrep-rules')) {
+  if (args.includes('--opengrep-rules') && args.includes('--semgrep-rules')) {
     console.error(formatError(
       ERROR_CODES.E1001,
-      '--semgrep-rules and --opengrep-rules are aliases for the same option; pass only one',
+      '--opengrep-rules and --semgrep-rules are aliases for the same option; pass only one',
     ));
     process.exit(1);
   }
@@ -239,9 +239,9 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
 
   if (result.checkType === 'targeted' || result.checkType === 'static') {
     const discoveryChoices = result.checkType === 'targeted'
-      ? ['semgrep', 'opengrep', 'openant', 'sarif', 'glob', 'script']
-      : ['semgrep', 'opengrep'];
-    result.discovery = await askChoice('Discovery method', discoveryChoices, 'semgrep', flags.discovery);
+      ? ['opengrep', 'semgrep', 'openant', 'sarif', 'glob', 'script']
+      : ['opengrep', 'semgrep'];
+    result.discovery = await askChoice('Discovery method', discoveryChoices, 'opengrep', flags.discovery);
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
 
     if (result.checkType === 'targeted') {
@@ -259,7 +259,7 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
       result.analysisMode = await askChoice('Analysis mode', modeChoices, 'custom', flags.analysisMode);
     }
 
-    if (result.discovery === 'semgrep' || result.discovery === 'opengrep') {
+    if (result.discovery === 'opengrep' || result.discovery === 'semgrep') {
       const toolLabel = result.discovery === 'opengrep' ? 'Opengrep' : 'Semgrep';
       result.semgrepRules = flags.semgrepRules !== undefined
         ? flags.semgrepRules
@@ -419,8 +419,8 @@ function validateInputs(
 
   if ((inputs.checkType === 'targeted' || inputs.checkType === 'static') && inputs.checkType) {
     const validDiscoveries = inputs.checkType === 'targeted'
-      ? ['semgrep', 'opengrep', 'openant', 'sarif', 'glob', 'script']
-      : ['semgrep', 'opengrep'];
+      ? ['opengrep', 'semgrep', 'openant', 'sarif', 'glob', 'script']
+      : ['opengrep', 'semgrep'];
     if (!inputs.discovery || !validDiscoveries.includes(inputs.discovery)) {
       errors.push(`Invalid discovery "${inputs.discovery}" for check type "${inputs.checkType}". Must be one of: ${validDiscoveries.join(', ')}`);
     }
@@ -454,7 +454,7 @@ function validateInputs(
     }
   }
 
-  if ((inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
+  if ((inputs.discovery === 'opengrep' || inputs.discovery === 'semgrep') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
     errors.push(`Invalid language "${inputs.language}". Must be one of: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`);
   }
 
@@ -478,7 +478,7 @@ function generateSemgrepRule(checkId: string, language: string): string {
   return `rules:
   - id: ${checkId}
     pattern: |
-      # TODO: Replace with your pattern (Semgrep/Opengrep syntax)
+      # TODO: Replace with your pattern (Opengrep/Semgrep syntax)
       ...
     message: >
       TODO: Describe the issue this rule detects.
@@ -668,7 +668,7 @@ function generateCheckDefinition(inputs: {
       type: inputs.checkType,
       discovery: inputs.discovery,
     };
-    if (inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') {
+    if (inputs.discovery === 'opengrep' || inputs.discovery === 'semgrep') {
       if (inputs.semgrepRules) {
         const rules = inputs.semgrepRules.split(',').map((r) => r.trim()).filter(Boolean);
         checkTarget.rules = rules.length === 1 ? rules[0] : rules;
@@ -799,8 +799,8 @@ Options:
   --flag-condition <text>    Condition for a FLAG result (optional)
   --check-type <type>        Check type (default: targeted). See 'Check types' below
   --discovery <name>         Discovery mechanism for targeted/static checks. See below
-  --semgrep-rules <paths>    Comma-separated rule file paths (for semgrep/opengrep discovery)
-  --opengrep-rules <paths>   Alias for --semgrep-rules; do not pass both (error)
+  --opengrep-rules <paths>   Comma-separated rule file paths (for opengrep/semgrep discovery)
+  --semgrep-rules <paths>    Alias for --opengrep-rules; do not pass both (error)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
   --glob <pattern>           Glob pattern (for glob discovery, e.g. "src/routes/**/*.ts")
   --script <path>            Script path relative to the check folder (for script
@@ -811,7 +811,7 @@ Options:
   --timeout-ms <n>           Script timeout in milliseconds (default: 30000)
   --analysis-mode <mode>     Analysis mode for targeted checks (default: custom). See below
   --max-targets <n>          Maximum number of targets to analyze
-  --language <lang>          Language for Semgrep/Opengrep template: python, javascript, typescript
+  --language <lang>          Language for Opengrep/Semgrep template: python, javascript, typescript
   --priority <n>             Execution order (non-negative integer, lower runs first)
   --match-file-types <exts>  matchCriteria: comma-separated file extensions (e.g. .ts,.tsx)
   --match-paths <globs>      matchCriteria: comma-separated glob patterns (any match)
@@ -828,8 +828,8 @@ Check types:
   static      Discovery finds targets, mapped directly to issues (no AI)
 
 Discovery mechanisms:
-  semgrep     Semgrep rules find targets (targeted or static)
-  opengrep    Opengrep (Semgrep fork) rules find targets (targeted or static)
+  opengrep    Opengrep rules find targets
+  semgrep     Semgrep rules also find targets with the same rule syntax
   openant     OpenAnt code analysis finds units (targeted only)
   sarif       External SARIF file provides findings (targeted only)
   glob        File path glob pattern selects whole-file targets (targeted only)
@@ -837,7 +837,7 @@ Discovery mechanisms:
 
 Analysis modes (targeted checks only):
   custom                      Use a custom instructions markdown file (default)
-  false-positive-validation   AI validates each finding as true/false positive (semgrep, opengrep, sarif)
+  false-positive-validation   AI validates each finding as true/false positive (opengrep, semgrep, sarif)
   general-vuln-discovery      AI scans each target for general security vulnerabilities (all)
 
 Repository matching / ordering (registry-level, all check types):
@@ -848,7 +848,7 @@ Repository matching / ordering (registry-level, all check types):
 Examples:
   aghast new-check --config-dir ./my-checks
   aghast new-check --config-dir ./my-checks --id xss --name "XSS Prevention"
-  aghast new-check --config-dir ./my-checks --check-type targeted --discovery semgrep --language typescript
+  aghast new-check --config-dir ./my-checks --check-type targeted --discovery opengrep --language typescript
   aghast new-check --config-dir ./my-checks --check-type targeted --discovery sarif --sarif-file ./sast-results.sarif
   aghast new-check --config-dir ./my-checks --check-type targeted --discovery script --script-type node --output-format json-array
 
@@ -937,9 +937,9 @@ export async function runNewCheck(args: string[]): Promise<void> {
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);
   }
 
-  // Generate Semgrep/Opengrep rule template and test file if needed
+  // Generate Opengrep/Semgrep rule template and test file if needed
   // (the rule file format is identical between the two tools)
-  if ((inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') && !inputs.semgrepRules) {
+  if ((inputs.discovery === 'opengrep' || inputs.discovery === 'semgrep') && !inputs.semgrepRules) {
     const rulePath = resolve(checkFolder, `${inputs.id}.yaml`);
     await writeFile(rulePath, generateSemgrepRule(inputs.id, inputs.language), 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.yaml (template — edit before running)`);

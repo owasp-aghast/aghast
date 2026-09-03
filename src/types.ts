@@ -119,7 +119,7 @@ export interface OpenAntFilterConfig {
 
 export interface CheckTargetDefinition {
   type: 'targeted' | 'static' | 'repository';
-  discovery?: 'semgrep' | 'opengrep' | 'openant' | 'sarif' | 'glob' | 'script';
+  discovery?: 'opengrep' | 'semgrep' | 'openant' | 'sarif' | 'glob' | 'script';
   rules?: string | string[];
   config?: string;
   sarifFile?: string;

@@ -23,8 +23,8 @@ my-checks/
     aghast-sqli/
       aghast-sqli.json
       aghast-sqli.md
-      aghast-sqli.yaml        # Semgrep/Opengrep rule (for semgrep or opengrep discovery)
-      tests/                  # Semgrep/Opengrep rule test files
+      aghast-sqli.yaml        # Opengrep/Semgrep rule (for opengrep or semgrep discovery)
+      tests/                  # Opengrep/Semgrep rule test files
         aghast-sqli.py        # .py, .js, or .ts based on --language
   runtime-config.json          # (Optional) Agent provider & reporting overrides
 ```
@@ -143,7 +143,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
-**Targeted check with Semgrep discovery** (Semgrep finds code locations, AI analyzes each):
+**Targeted check with Opengrep discovery** (Opengrep finds code locations, AI analyzes each):
 
 ```json
 {
@@ -154,7 +154,7 @@ Each check folder contains a JSON definition file with the check's metadata.
   "confidence": "high",
   "checkTarget": {
     "type": "targeted",
-    "discovery": "semgrep",
+    "discovery": "opengrep",
     "rules": "aghast-sqli.yaml",
     "maxTargets": 50,
     "concurrency": 3
@@ -162,7 +162,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
-**Static check with Semgrep discovery** (Semgrep findings mapped directly, no AI):
+**Static check with Opengrep discovery** (Opengrep findings mapped directly, no AI):
 
 ```json
 {
@@ -172,13 +172,13 @@ Each check folder contains a JSON definition file with the check's metadata.
   "confidence": "high",
   "checkTarget": {
     "type": "static",
-    "discovery": "semgrep",
+    "discovery": "opengrep",
     "rules": "aghast-hardcoded-secrets.yaml"
   }
 }
 ```
 
-Opengrep can be used as a drop-in replacement for Semgrep: change `discovery: "semgrep"` to `discovery: "opengrep"` in any check definition, and the rule file syntax remains identical. Opengrep is a community fork of Semgrep with the same CLI interface and SARIF output format.
+Opengrep is the default discovery method; Semgrep is also supported as a drop-in alternative. Change `discovery: "opengrep"` to `discovery: "semgrep"` in any check definition, and the rule file syntax remains identical.
 
 **Targeted check with SARIF discovery** (external SARIF findings validated by AI):
 
@@ -237,7 +237,7 @@ Opengrep can be used as a drop-in replacement for Semgrep: change `discovery: "s
 }
 ```
 
-**Diff filtering activates whenever you supply a diff source.** You turn it on for a scan by providing a diff source — one of `--diff-ref`, `--diff-file`, `AGHAST_DIFF_REF`, runtime config `diffRef`, or a check-level `diffRef`. Once a diff source is present, every targeted check whose discovery supports it (`semgrep`, `sarif`) automatically has its findings narrowed to diff scope — no per-check field is required to opt in. The examples above run as diff-filtered scans in CI simply by passing `AGHAST_DIFF_REF`.
+**Diff filtering activates whenever you supply a diff source.** You turn it on for a scan by providing a diff source — one of `--diff-ref`, `--diff-file`, `AGHAST_DIFF_REF`, runtime config `diffRef`, or a check-level `diffRef`. Once a diff source is present, every targeted check whose discovery supports it (`opengrep`, `semgrep`, `sarif`) automatically has its findings narrowed to diff scope — no per-check field is required to opt in. The examples above run as diff-filtered scans in CI simply by passing `AGHAST_DIFF_REF`.
 
 **Opting out a single check** when you otherwise want diff filtering on for the scan run:
 
@@ -246,7 +246,7 @@ Opengrep can be used as a drop-in replacement for Semgrep: change `discovery: "s
   "id": "aghast-supply-chain",
   "checkTarget": {
     "type": "targeted",
-    "discovery": "semgrep",
+    "discovery": "opengrep",
     "rules": "aghast-supply-chain.yaml",
     "diffFilter": false
   }
@@ -265,9 +265,9 @@ Diff filtering works identically for `openant` discovery: the filter narrows the
 | `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
 | `checkTarget`      | `object`                      | No       | Target configuration (omit for repository checks) |
 | `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
-| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `opengrep`, `sarif`, `openant`, `glob`, or `script` (***required for `targeted` and `static` types) |
+| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `opengrep`, `semgrep`, `sarif`, `openant`, `glob`, or `script` (***required for `targeted` and `static` types) |
 | `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
-| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `semgrep` or `opengrep` discovery — both tools share the same rule syntax) |
+| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `opengrep` or `semgrep` discovery — both tools share the same rule syntax) |
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
 | `checkTarget.glob` | `string`                      | Yes****** | Glob pattern (e.g. `src/routes/**/*.ts`) relative to repository root (******only for `glob` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
@@ -300,8 +300,8 @@ The `discovery` field on `checkTarget` specifies how targets are found for `targ
 
 | Discovery | Requires | Description | Supports diff filter |
 |-----------|----------|-------------|----------------------|
-| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations | Yes |
-| `opengrep` | Opengrep installed | Runs Opengrep (a Semgrep fork with identical rule syntax and SARIF output) — supports `targeted` and `static` check types | Yes |
+| `opengrep` | Opengrep installed | Runs Opengrep rules to discover specific code locations — supports `targeted` and `static` check types | Yes |
+| `semgrep` | Semgrep installed | Runs Semgrep rules with the same rule syntax and SARIF output shape — supports `targeted` and `static` check types | Yes |
 | `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
 | `glob` | None | Walks the repository and selects whole-file targets matching a glob pattern (e.g. `src/routes/**/*.ts`). Targeted checks only. Always skips: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `dist`, `build`, `.next`, `.nuxt`, `.cache`, `.idea`, `.vscode`. Files larger than 10 MiB and symlinks are also skipped | No |

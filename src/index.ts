@@ -183,7 +183,7 @@ Environment variables:
   AGHAST_LOG_LEVEL            Console log level (CLI --log-level takes precedence)
   AGHAST_LOG_FILE             Log file path (CLI --log-file takes precedence)
   AGHAST_LOG_TYPE             Log file handler type (CLI --log-type takes precedence)
-  AGHAST_MOCK_SARIF           Use a SARIF file instead of running Semgrep or Opengrep
+  AGHAST_MOCK_SARIF           Use a SARIF file instead of running Opengrep or Semgrep
                               (test/development use only)
   AGHAST_OPENANT_DATASET      Use a pre-generated OpenAnt dataset JSON file
   AGHAST_DIFF_REF             Git ref to diff against (CLI --diff-ref takes precedence)
