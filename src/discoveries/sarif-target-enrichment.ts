@@ -1,6 +1,6 @@
 /**
  * Shared prompt enrichment for SARIF-producing discovery providers
- * (semgrep, opengrep). Injects target location context so the AI only
+ * (opengrep, semgrep). Injects target location context so the AI only
  * analyzes the specific code location discovered by the scanner.
  */
 

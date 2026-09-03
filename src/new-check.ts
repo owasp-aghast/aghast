@@ -112,10 +112,10 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
 };
 
 function parseFlags(args: string[]): ParsedFlags {
-  if (args.includes('--semgrep-rules') && args.includes('--opengrep-rules')) {
+  if (args.includes('--opengrep-rules') && args.includes('--semgrep-rules')) {
     console.error(formatError(
       ERROR_CODES.E1001,
-      '--semgrep-rules and --opengrep-rules are aliases for the same option; pass only one',
+      '--opengrep-rules and --semgrep-rules are aliases for the same option; pass only one',
     ));
     process.exit(1);
   }
@@ -259,7 +259,7 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
       result.analysisMode = await askChoice('Analysis mode', modeChoices, 'custom', flags.analysisMode);
     }
 
-    if (result.discovery === 'semgrep' || result.discovery === 'opengrep') {
+    if (result.discovery === 'opengrep' || result.discovery === 'semgrep') {
       const toolLabel = result.discovery === 'opengrep' ? 'Opengrep' : 'Semgrep';
       result.semgrepRules = flags.semgrepRules !== undefined
         ? flags.semgrepRules
@@ -454,7 +454,7 @@ function validateInputs(
     }
   }
 
-  if ((inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
+  if ((inputs.discovery === 'opengrep' || inputs.discovery === 'semgrep') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
     errors.push(`Invalid language "${inputs.language}". Must be one of: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`);
   }
 
@@ -668,7 +668,7 @@ function generateCheckDefinition(inputs: {
       type: inputs.checkType,
       discovery: inputs.discovery,
     };
-    if (inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') {
+    if (inputs.discovery === 'opengrep' || inputs.discovery === 'semgrep') {
       if (inputs.semgrepRules) {
         const rules = inputs.semgrepRules.split(',').map((r) => r.trim()).filter(Boolean);
         checkTarget.rules = rules.length === 1 ? rules[0] : rules;
@@ -799,8 +799,8 @@ Options:
   --flag-condition <text>    Condition for a FLAG result (optional)
   --check-type <type>        Check type (default: targeted). See 'Check types' below
   --discovery <name>         Discovery mechanism for targeted/static checks. See below
-  --semgrep-rules <paths>    Comma-separated rule file paths (for opengrep/semgrep discovery)
-  --opengrep-rules <paths>   Alias for --semgrep-rules; do not pass both (error)
+  --opengrep-rules <paths>   Comma-separated rule file paths (for opengrep/semgrep discovery)
+  --semgrep-rules <paths>    Alias for --opengrep-rules; do not pass both (error)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
   --glob <pattern>           Glob pattern (for glob discovery, e.g. "src/routes/**/*.ts")
   --script <path>            Script path relative to the check folder (for script
@@ -937,9 +937,9 @@ export async function runNewCheck(args: string[]): Promise<void> {
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);
   }
 
-  // Generate Semgrep/Opengrep rule template and test file if needed
+  // Generate Opengrep/Semgrep rule template and test file if needed
   // (the rule file format is identical between the two tools)
-  if ((inputs.discovery === 'semgrep' || inputs.discovery === 'opengrep') && !inputs.semgrepRules) {
+  if ((inputs.discovery === 'opengrep' || inputs.discovery === 'semgrep') && !inputs.semgrepRules) {
     const rulePath = resolve(checkFolder, `${inputs.id}.yaml`);
     await writeFile(rulePath, generateSemgrepRule(inputs.id, inputs.language), 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.yaml (template — edit before running)`);

@@ -31,7 +31,7 @@ Scaffolds a new security check interactively. Any values not provided via flags 
 | `--severity <level>` | `critical`, `high`, `medium`, `low`, or `informational` |
 | `--confidence <level>` | `high`, `medium`, or `low` |
 
-Run `aghast new-check --help` for the full list of flags including `--check-overview`, `--check-items`, `--pass-condition`, `--fail-condition`, `--flag-condition`, `--repositories`, `--semgrep-rules` / `--opengrep-rules` (aliases for the same flag — don't pass both in the same command), `--max-targets`, `--language`, `--cwd`, and `--timeout-ms`.
+Run `aghast new-check --help` for the full list of flags including `--check-overview`, `--check-items`, `--pass-condition`, `--fail-condition`, `--flag-condition`, `--repositories`, `--opengrep-rules` / `--semgrep-rules` (aliases for the same flag — don't pass both in the same command), `--max-targets`, `--language`, `--cwd`, and `--timeout-ms`.
 
 ## What gets created
 
@@ -51,7 +51,7 @@ See the [Configuration Reference](configuration.md#layer-2-check-definition-idjs
 
 ## Diff filtering
 
-Every targeted/static check whose discovery supports it (`semgrep`, `opengrep`, `sarif`, `openant`) automatically participates in [diff filtering](configuration.md#diff-filtering) when the scan is invoked with a diff source (e.g. `--diff-ref`, `AGHAST_DIFF_REF` in a PR workflow) — nothing in the check JSON is required to opt in. `glob` and `script` discovery do not support diff filtering (`checkTarget.diffFilter` has no effect for them) and always run full-repo. If a specific check with a supporting discovery should stay full-repo even during a diff-scoped scan, set `"diffFilter": false` on its `checkTarget`. See the [Configuration Reference](configuration.md#diff-filtering) for details.
+Every targeted/static check whose discovery supports it (`opengrep`, `semgrep`, `sarif`, `openant`) automatically participates in [diff filtering](configuration.md#diff-filtering) when the scan is invoked with a diff source (e.g. `--diff-ref`, `AGHAST_DIFF_REF` in a PR workflow) — nothing in the check JSON is required to opt in. `glob` and `script` discovery do not support diff filtering (`checkTarget.diffFilter` has no effect for them) and always run full-repo. If a specific check with a supporting discovery should stay full-repo even during a diff-scoped scan, set `"diffFilter": false` on its `checkTarget`. See the [Configuration Reference](configuration.md#diff-filtering) for details.
 
 ---
 

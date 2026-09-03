@@ -178,7 +178,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
-Semgrep is also supported as a drop-in alternative: change `discovery: "opengrep"` to `discovery: "semgrep"` in any check definition, and the rule file syntax remains identical.
+Opengrep is the default discovery method; Semgrep is also supported as a drop-in alternative. Change `discovery: "opengrep"` to `discovery: "semgrep"` in any check definition, and the rule file syntax remains identical.
 
 **Targeted check with SARIF discovery** (external SARIF findings validated by AI):
 
@@ -267,7 +267,7 @@ Diff filtering works identically for `openant` discovery: the filter narrows the
 | `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
 | `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `opengrep`, `semgrep`, `sarif`, `openant`, `glob`, or `script` (***required for `targeted` and `static` types) |
 | `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
-| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `semgrep` or `opengrep` discovery — both tools share the same rule syntax) |
+| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Rule file path(s) relative to check folder (****only for `opengrep` or `semgrep` discovery — both tools share the same rule syntax) |
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
 | `checkTarget.glob` | `string`                      | Yes****** | Glob pattern (e.g. `src/routes/**/*.ts`) relative to repository root (******only for `glob` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |

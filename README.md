@@ -32,8 +32,8 @@ Define your checks, which repositories they relate to, and get accurate and stru
 To cut to the chase, AGHAST uses three core mechanisms:
 
 - **Repository-wide AI analysis** — let the LLM analyze the whole repo against your security check instructions
-- **Targeted checks** — a pluggable discovery method (Semgrep or Opengrep rules, [OpenAnt](https://github.com/knostic/OpenAnt/) code units, or external SARIF findings) identifies specific code locations, then AI analyzes each independently. This is the sweet spot for most use cases
-- **Static checks** — a discovery method (Semgrep or Opengrep) finds issues mapped directly to results with no AI involvement, for when a traditional static rule is all you need
+- **Targeted checks** — a pluggable discovery method (Opengrep or Semgrep rules, [OpenAnt](https://github.com/knostic/OpenAnt/) code units, or external SARIF findings) identifies specific code locations, then AI analyzes each independently. This is the sweet spot for most use cases
+- **Static checks** — a discovery method (Opengrep or Semgrep) finds issues mapped directly to results with no AI involvement, for when a traditional static rule is all you need
 
 The beauty of the approach is what you *don't* need:
 

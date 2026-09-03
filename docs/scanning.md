@@ -102,7 +102,7 @@ without which the base ref is unreachable and diff scoping silently does nothing
 | `AGHAST_LOG_LEVEL` | Console log level (CLI `--log-level` takes precedence) |
 | `AGHAST_LOG_FILE` | Log file path (CLI `--log-file` takes precedence) |
 | `AGHAST_LOG_TYPE` | Log file handler type (CLI `--log-type` takes precedence) |
-| `AGHAST_MOCK_SARIF` | Path to a SARIF file to use instead of running Semgrep or Opengrep (test/dev use only; also skips the install prerequisite check for whichever tool the check targets) |
+| `AGHAST_MOCK_SARIF` | Path to a SARIF file to use instead of running Opengrep or Semgrep (test/dev use only; also skips the install prerequisite check for whichever tool the check targets) |
 | `AGHAST_OPENANT_DATASET` | Path to a pre-generated OpenAnt dataset JSON file. When set, aghast uses this dataset directly instead of invoking `openant parse`. Useful for caching the dataset across multiple scans, splitting OpenAnt and aghast into separate CI jobs, running aghast where Python 3.11+ isn't available, or stubbing OpenAnt output in tests |
 | `AGHAST_DIFF_REF` | Git ref to diff against; enables diff filtering on supporting discoveries (CLI `--diff-ref` takes precedence) |
 | `AGHAST_JUDGE_MODEL` | Enable the LLM judge stage using this model (CLI `--judge-model` takes precedence) |

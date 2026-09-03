@@ -625,7 +625,7 @@ describe('new-check utility', () => {
     assert.equal(checkDef.instructionsFile, undefined);
   });
 
-  it('rejects when both --semgrep-rules and --opengrep-rules are passed', async () => {
+  it('rejects when both --opengrep-rules and --semgrep-rules are passed', async () => {
     const result = await runNewCheck([
       '--config-dir', configDir,
       '--id', 'aghast-test',
@@ -638,7 +638,7 @@ describe('new-check utility', () => {
 
     assert.notEqual(result.exitCode, 0, 'Expected non-zero exit when both rules flags are passed');
     assert.ok(
-      result.stderr.includes('--semgrep-rules and --opengrep-rules'),
+      result.stderr.includes('--opengrep-rules and --semgrep-rules'),
       `Expected stderr to mention the conflict, got: ${result.stderr}`,
     );
   });

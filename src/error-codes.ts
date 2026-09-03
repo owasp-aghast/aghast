@@ -6,7 +6,7 @@
  *   E2xxx — Configuration (config dir, checks, runtime config)
  *   E3xxx — Agent provider
  *   E4xxx — Repository/target validation
- *   E5xxx — Semgrep / Opengrep
+ *   E5xxx — Opengrep / Semgrep
  *   E6xxx — OpenAnt
  *   E70xx — Budget / cost controls
  *   E71xx — Script discovery
@@ -50,7 +50,7 @@ export const ERROR_CODES = {
   // E4xxx — Repository/target validation
   E4001: ec('E4001', 'Repository path not found'),
 
-  // E5xxx — Semgrep / Opengrep
+  // E5xxx — Opengrep / Semgrep
   E5001: ec('E5001', 'Semgrep not installed'),
   E5101: ec('E5101', 'Opengrep not installed'),
 
