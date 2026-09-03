@@ -246,8 +246,8 @@ Discovery methods for `targeted` and `static` checks:
 
 | Discovery | Requires | Description | Supports `diffFilter` |
 |-----------|----------|-------------|-----------------------|
-| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations | Yes |
-| `opengrep` | Opengrep installed | Runs Opengrep (a Semgrep fork with identical rule syntax and SARIF output) | Yes |
+| `opengrep` | Opengrep installed | Runs Opengrep rules to discover specific code locations | Yes |
+| `semgrep` | Semgrep installed | Runs Semgrep rules with the same rule syntax and SARIF output shape | Yes |
 | `sarif` | SARIF file in check definition | Reads findings from an external SARIF file | Yes |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context | Yes |
 | `glob` | Nothing | Walks the repository and selects whole-file targets matching a glob pattern | No |
@@ -266,7 +266,7 @@ Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
 | Mode | Discovery | Description |
 |------|-----------|-------------|
 | `custom` (default) | All | AI analyzes each target using your custom instructions markdown file |
-| `false-positive-validation` | `semgrep`, `opengrep`, `sarif` | AI validates each finding as a true or false positive |
+| `false-positive-validation` | `opengrep`, `semgrep`, `sarif` | AI validates each finding as a true or false positive |
 | `general-vuln-discovery` | All | AI scans each target for a broad range of security vulnerabilities |
 
 Built-in modes (`false-positive-validation`, `general-vuln-discovery`) provide their own prompt template and don't require an instructions file. See [How It Works](how-it-works.md#three-check-types) for details.

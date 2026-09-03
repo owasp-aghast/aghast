@@ -57,8 +57,8 @@ There are almost certainly other ways of achieving this, but to our mind, this a
   - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports, including some **free options**.
 
   See [Scanning → Agent Providers](docs/scanning.md#agent-providers) for the full comparison.
-- For checks that use `semgrep` discovery: **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1)
-- For checks that use `opengrep` discovery: **[Opengrep](https://github.com/opengrep/opengrep)** (LGPL-2.1 fork of Semgrep)
+- For checks that use `opengrep` discovery: **[Opengrep](https://github.com/opengrep/opengrep)** (LGPL-2.1)
+- For checks that use `semgrep` discovery: **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (also supported)
 - For checks that use `openant` discovery: **[OpenAnt](https://github.com/knostic/OpenAnt/)** (Apache-2.0) + **Python 3.11+** + **Go** (for building CLI)
 
 ## Quick Start

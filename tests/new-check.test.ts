@@ -712,6 +712,73 @@ describe('new-check utility', () => {
     assert.equal(registry.checks[0].id, 'aghast-retry-test');
   });
 
+  it('defaults interactive targeted discovery to opengrep', async () => {
+    const result = await runNewCheckInteractive(
+      [
+        '--config-dir', configDir,
+        '--id', 'aghast-default-discovery',
+        '--name', 'Default Discovery',
+        '--check-type', 'targeted',
+        '--analysis-mode', 'custom',
+        '--language', 'python',
+        '--severity', 'high',
+        '--confidence', 'medium',
+        '--model', '',
+        '--repositories', '',
+        '--priority', '',
+        '--match-file-types', '',
+        '--check-overview', 'Overview text',
+        '--check-items', 'Item A',
+        '--pass-condition', 'All good',
+        '--fail-condition', 'Something bad',
+        '--flag-condition', '',
+      ],
+      [
+        '',
+        '',
+        '',
+      ],
+    );
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(
+      await readFile(resolve(checksDir, 'aghast-default-discovery', 'aghast-default-discovery.json'), 'utf-8'),
+    );
+    assert.equal(checkDef.checkTarget.discovery, 'opengrep');
+    assert.equal(checkDef.checkTarget.rules, 'aghast-default-discovery.yaml');
+  });
+
+  it('defaults interactive static discovery to opengrep', async () => {
+    const result = await runNewCheckInteractive(
+      [
+        '--config-dir', configDir,
+        '--id', 'aghast-default-static-discovery',
+        '--name', 'Default Static Discovery',
+        '--check-type', 'static',
+        '--language', 'python',
+        '--severity', 'high',
+        '--confidence', 'medium',
+        '--model', '',
+        '--repositories', '',
+        '--priority', '',
+        '--match-file-types', '',
+      ],
+      [
+        '',
+        '',
+      ],
+    );
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(
+      await readFile(resolve(checksDir, 'aghast-default-static-discovery', 'aghast-default-static-discovery.json'), 'utf-8'),
+    );
+    assert.equal(checkDef.checkTarget.discovery, 'opengrep');
+    assert.equal(checkDef.checkTarget.rules, 'aghast-default-static-discovery.yaml');
+  });
+
   // ─── Static checks (formerly semgrep-only) ──────────────────────────────
 
   it('static type creates correct checkTarget with no instructionsFile', async () => {

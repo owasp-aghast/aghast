@@ -239,9 +239,9 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
 
   if (result.checkType === 'targeted' || result.checkType === 'static') {
     const discoveryChoices = result.checkType === 'targeted'
-      ? ['semgrep', 'opengrep', 'openant', 'sarif', 'glob', 'script']
-      : ['semgrep', 'opengrep'];
-    result.discovery = await askChoice('Discovery method', discoveryChoices, 'semgrep', flags.discovery);
+      ? ['opengrep', 'semgrep', 'openant', 'sarif', 'glob', 'script']
+      : ['opengrep', 'semgrep'];
+    result.discovery = await askChoice('Discovery method', discoveryChoices, 'opengrep', flags.discovery);
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
 
     if (result.checkType === 'targeted') {
@@ -419,8 +419,8 @@ function validateInputs(
 
   if ((inputs.checkType === 'targeted' || inputs.checkType === 'static') && inputs.checkType) {
     const validDiscoveries = inputs.checkType === 'targeted'
-      ? ['semgrep', 'opengrep', 'openant', 'sarif', 'glob', 'script']
-      : ['semgrep', 'opengrep'];
+      ? ['opengrep', 'semgrep', 'openant', 'sarif', 'glob', 'script']
+      : ['opengrep', 'semgrep'];
     if (!inputs.discovery || !validDiscoveries.includes(inputs.discovery)) {
       errors.push(`Invalid discovery "${inputs.discovery}" for check type "${inputs.checkType}". Must be one of: ${validDiscoveries.join(', ')}`);
     }
@@ -478,7 +478,7 @@ function generateSemgrepRule(checkId: string, language: string): string {
   return `rules:
   - id: ${checkId}
     pattern: |
-      # TODO: Replace with your pattern (Semgrep/Opengrep syntax)
+      # TODO: Replace with your pattern (Opengrep/Semgrep syntax)
       ...
     message: >
       TODO: Describe the issue this rule detects.
@@ -799,7 +799,7 @@ Options:
   --flag-condition <text>    Condition for a FLAG result (optional)
   --check-type <type>        Check type (default: targeted). See 'Check types' below
   --discovery <name>         Discovery mechanism for targeted/static checks. See below
-  --semgrep-rules <paths>    Comma-separated rule file paths (for semgrep/opengrep discovery)
+  --semgrep-rules <paths>    Comma-separated rule file paths (for opengrep/semgrep discovery)
   --opengrep-rules <paths>   Alias for --semgrep-rules; do not pass both (error)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
   --glob <pattern>           Glob pattern (for glob discovery, e.g. "src/routes/**/*.ts")
@@ -811,7 +811,7 @@ Options:
   --timeout-ms <n>           Script timeout in milliseconds (default: 30000)
   --analysis-mode <mode>     Analysis mode for targeted checks (default: custom). See below
   --max-targets <n>          Maximum number of targets to analyze
-  --language <lang>          Language for Semgrep/Opengrep template: python, javascript, typescript
+  --language <lang>          Language for Opengrep/Semgrep template: python, javascript, typescript
   --priority <n>             Execution order (non-negative integer, lower runs first)
   --match-file-types <exts>  matchCriteria: comma-separated file extensions (e.g. .ts,.tsx)
   --match-paths <globs>      matchCriteria: comma-separated glob patterns (any match)
@@ -828,8 +828,8 @@ Check types:
   static      Discovery finds targets, mapped directly to issues (no AI)
 
 Discovery mechanisms:
-  semgrep     Semgrep rules find targets (targeted or static)
-  opengrep    Opengrep (Semgrep fork) rules find targets (targeted or static)
+  opengrep    Opengrep rules find targets
+  semgrep     Semgrep rules also find targets with the same rule syntax
   openant     OpenAnt code analysis finds units (targeted only)
   sarif       External SARIF file provides findings (targeted only)
   glob        File path glob pattern selects whole-file targets (targeted only)
@@ -837,7 +837,7 @@ Discovery mechanisms:
 
 Analysis modes (targeted checks only):
   custom                      Use a custom instructions markdown file (default)
-  false-positive-validation   AI validates each finding as true/false positive (semgrep, opengrep, sarif)
+  false-positive-validation   AI validates each finding as true/false positive (opengrep, semgrep, sarif)
   general-vuln-discovery      AI scans each target for general security vulnerabilities (all)
 
 Repository matching / ordering (registry-level, all check types):
@@ -848,7 +848,7 @@ Repository matching / ordering (registry-level, all check types):
 Examples:
   aghast new-check --config-dir ./my-checks
   aghast new-check --config-dir ./my-checks --id xss --name "XSS Prevention"
-  aghast new-check --config-dir ./my-checks --check-type targeted --discovery semgrep --language typescript
+  aghast new-check --config-dir ./my-checks --check-type targeted --discovery opengrep --language typescript
   aghast new-check --config-dir ./my-checks --check-type targeted --discovery sarif --sarif-file ./sast-results.sarif
   aghast new-check --config-dir ./my-checks --check-type targeted --discovery script --script-type node --output-format json-array
 

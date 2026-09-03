@@ -90,8 +90,8 @@ flowchart TD
     Start(["For each check..."]) --> TypeCheck{Check Type?}
 
     TypeCheck -->|repository| RepoCheck["Whole-repo AI analysis<br/>No discovery needed"]
-    TypeCheck -->|targeted| TargetCheck["Run discovery<br/><i>semgrep · opengrep · openant · sarif</i>"]
-    TypeCheck -->|static| StaticCheck["Run discovery<br/><i>semgrep · opengrep</i>"]
+    TypeCheck -->|targeted| TargetCheck["Run discovery<br/><i>opengrep · semgrep · openant · sarif</i>"]
+    TypeCheck -->|static| StaticCheck["Run discovery<br/><i>opengrep · semgrep</i>"]
 
     TargetCheck --> DiffFilterStep{Diff source<br/>available?}
     DiffFilterStep -->|yes| DiffFilter["Apply diff filter<br/>(OpenAnt call graph)"]
@@ -99,7 +99,7 @@ flowchart TD
     DiffFilter --> ModeCheck{Analysis Mode?}
 
     ModeCheck -->|custom| Custom["AI analyzes with<br/>custom instructions"]
-    ModeCheck -->|false-positive-validation| FPV["AI validates findings<br/>as true/false positive<br/><i>(semgrep, opengrep, sarif only)</i>"]
+    ModeCheck -->|false-positive-validation| FPV["AI validates findings<br/>as true/false positive<br/><i>(opengrep, semgrep, sarif only)</i>"]
     ModeCheck -->|general-vuln-discovery| GVD["AI performs general<br/>vulnerability discovery"]
 
     RepoCheck --> Parse
@@ -179,8 +179,8 @@ When you can narrow down where to look before involving the AI. This is the swee
 
 Discovery methods are deterministic: they use static analysis or pre-existing results to identify code locations, without involving the AI. The discovery method determines how AGHAST finds the code locations to examine:
 
-- **Semgrep**: write a Semgrep rule that matches code patterns you care about. For example, a rule that finds all functions calling `send_ai_query()`, so the AI can check whether each one performs the required validations first.
-- **Opengrep**: identical to Semgrep discovery but runs the Opengrep binary (a Semgrep fork). Use this when you prefer Opengrep for licensing or tooling reasons — the rule syntax and SARIF output are the same.
+- **Opengrep**: write an Opengrep rule that matches code patterns you care about. For example, a rule that finds all functions calling `send_ai_query()`, so the AI can check whether each one performs the required validations first.
+- **Semgrep**: also supported with the same rule syntax and SARIF-style output shape, so checks can switch scanners without rewriting the rule.
 - **OpenAnt**: runs [OpenAnt](https://github.com/knostic/OpenAnt/) to extract individual code units (functions, classes) with call graph context (who calls this function, what does it call).
 - **SARIF**: reads findings from an external SARIF file (e.g., output from another SAST scanner) and feeds each finding to the AI.
 - **Glob**: selects whole files by path pattern (e.g. `src/routes/**/*.ts`), with no scanner required. Use it when "every file in this directory" is the right unit of review — route handlers, migrations, IaC templates.
