@@ -2,6 +2,6 @@
   "name": "opencode-install",
   "private": true,
   "dependencies": {
-    "opencode-ai": "1.14.33"
+    "opencode-ai": "1.18.34"
   }
 }
