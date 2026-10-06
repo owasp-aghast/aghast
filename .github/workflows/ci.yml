@@ -17,6 +17,8 @@ concurrency:
 
 env:
   REGRESSION_TEST_MODEL: opencode/big-pickle
+  # Enable the anonymous free model explicitly on clean OpenCode 2 runners.
+  OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-install/ci-config.json
 
 permissions:
   contents: read

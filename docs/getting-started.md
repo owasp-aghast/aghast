@@ -14,7 +14,7 @@ This guide walks you through installing aghast and setting up your environment.
 - **Node.js 20+**
 - **An agent provider**, required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks). Either:
   - The default `claude-code` provider, authenticated with **either** an **Anthropic API key** **or** a **logged-in local Claude session** (see step 2), or
-  - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports, including some **free options**.
+  - **[OpenCode 2](https://opencode.ai/v2/)** installed and authenticated for the `opencode` provider. This provider requires **Node.js 22+**.
 
   See [Scanning → Agent Providers](scanning.md#agent-providers) for the full comparison.
 - For checks that use `opengrep` discovery: **[Opengrep](https://github.com/opengrep/opengrep)**
@@ -49,7 +49,7 @@ If you don't set `ANTHROPIC_API_KEY`, the `claude-code` provider falls back to a
 
 **Option B — OpenCode**
 
-Install OpenCode from [https://opencode.ai](https://opencode.ai), then run `opencode` and use `/connect` to configure credentials for at least one LLM provider. Then pick either per-scan flags or a persistent default:
+Install OpenCode 2 with `npm install -g @opencode/cli@2`, then run `opencode` and use `/connect` to configure credentials for at least one LLM provider. Use `/models` to find an available `provider/model` ID for `--model`. Verify existing credentials and configuration using the [migration guide](https://opencode.ai/v2/docs/migrate-v1/). Then pick either per-scan flags or a persistent default:
 
 ```bash
 # Per-scan:

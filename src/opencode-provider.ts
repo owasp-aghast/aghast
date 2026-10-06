@@ -1,6 +1,6 @@
 /**
  * OpenCode agent provider implementation.
- * Uses @opencode-ai/sdk v2 API to delegate to any LLM provider supported by OpenCode.
+ * Uses the OpenCode 2 client through an internal API adapter.
  *
  * Progress logging: at debug/trace level, subscribes to the SSE event stream to
  * log tool calls and session errors in real-time while session.prompt() blocks.
@@ -15,6 +15,8 @@ import type { AgentProvider, AgentResponse, ProviderConfig, CheckResponse, Provi
 import { FatalProviderError } from './types.js';
 import { parseAgentResponse } from './response-parser.js';
 import { OUTPUT_SCHEMA } from './provider-utils.js';
+import { adaptOpenCodeClient, type OpenCodeClient } from './opencode-client.js';
+import type { OpenCodeClient as V2Client } from '@opencode-ai/client';
 import { logProgress, logDebug, logDebugFull, logTrace, logWarn, createTimer, isDebugEnabled, isTraceEnabled } from './logging.js';
 
 const execAsync = promisify(exec);
@@ -62,8 +64,7 @@ function summariseServerError(line: string): string {
   return `[opencode-server] ${status}${model ? ` — ${model}` : ''}${suffix}`;
 }
 
-// Inlined from @opencode-ai/sdk/dist/process.js — that path is not in the package exports map.
-// See docs/opencode-provider-internals.md.
+// Stop the owned process tree, including the Windows command wrapper.
 function stopProcess(proc: ReturnType<typeof spawn>): void {
   if (proc.exitCode !== null || proc.signalCode !== null) return;
   if (process.platform === 'win32' && proc.pid) {
@@ -75,18 +76,18 @@ function stopProcess(proc: ReturnType<typeof spawn>): void {
 
 /**
  * Spawn `opencode serve` directly so we can forward filtered server logs.
- * Returns the same `{ url, close() }` shape as the SDK's createOpencode().
+ * Captures the v2 server URL and password without logging the password.
  * At debug/trace log level, useful stderr lines (LLM calls, permission decisions,
  * provider routing) are forwarded to logDebug — surfacing 429 retries and auth errors
  * that would otherwise be invisible while session.prompt() blocks.
  */
-async function spawnOpencodeServer(): Promise<{ url: string; close(): void }> {
+async function spawnOpencodeServer(): Promise<{ url: string; headers: Record<string, string>; close(): void }> {
   // Always pass --print-logs so opencode writes server logs to stderr instead of disk.
   // We capture and forward those logs via logDebug, which routes to whichever handlers
   // are active (file handler at debug level sees them even if console is at info).
   // Shell is required on Windows for the .cmd wrapper (CVE-2024-27980 mitigation).
   const cmd = 'opencode serve --hostname=127.0.0.1 --port=0 --print-logs';
-  const proc = spawn(cmd, { shell: true });
+  const proc = spawn(cmd, { shell: true, windowsHide: true });
 
   const forwardStderr = (chunk: Buffer): void => {
     for (const line of chunk.toString().split('\n')) {
@@ -103,6 +104,9 @@ async function spawnOpencodeServer(): Promise<{ url: string; close(): void }> {
   };
 
   let stdoutBuf = '';
+  let serverUrl: string | undefined;
+  // When an environment password is supplied, v2 omits the password banner.
+  let password = process.env.OPENCODE_PASSWORD ?? process.env.OPENCODE_SERVER_PASSWORD;
   const url = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
       stopProcess(proc);
@@ -114,10 +118,13 @@ async function spawnOpencodeServer(): Promise<{ url: string; close(): void }> {
       const lines = stdoutBuf.split('\n');
       stdoutBuf = lines.pop() ?? '';
       for (const line of lines) {
-        const m = line.match(/opencode server listening on\s+(https?:\/\/[^\s]+)/);
-        if (m) {
+        const m = line.match(/server listening on\s+(https?:\/\/[^\s]+)/);
+        if (m) serverUrl = m[1];
+        const auth = line.match(/^server password\s+(\S+)/);
+        if (auth) password = auth[1];
+        if (serverUrl && password) {
           clearTimeout(timeout);
-          resolve(m[1]);
+          resolve(serverUrl);
         }
       }
     });
@@ -141,6 +148,7 @@ async function spawnOpencodeServer(): Promise<{ url: string; close(): void }> {
 
   return {
     url,
+    headers: { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` },
     close: () => stopProcess(proc),
   };
 }
@@ -168,25 +176,28 @@ function verifyOpenCodeInstalled(): Promise<void> {
         ));
         return;
       }
+      if (!/^(?:opencode\s+v?)?2\.\d+\.\d+/.test(stdout.trim())) {
+        reject(new Error('The opencode agent provider requires OpenCode 2. Install it with `npm install -g @opencode/cli@2`.'));
+        return;
+      }
       resolve();
     });
   });
 }
 
-// SDK client type alias
-type OpenCodeClient = InstanceType<(typeof import('@opencode-ai/sdk/v2'))['OpencodeClient']>;
-
 /** Options for constructor dependency injection (testing). */
 export interface OpenCodeProviderOptions {
   /** Inject a mock client for testing. Skips server startup. */
   _client?: OpenCodeClient;
+  /** Inject the real v2 client transport for focused integration tests. */
+  _v2Client?: V2Client;
 }
 
 export class OpenCodeProvider implements AgentProvider {
   private providerID: string = '';
   private modelID: string = '';
   private _client: OpenCodeClient | undefined;
-  private _server: { url: string; close(): void } | undefined;
+  private _server: { url: string; headers: Record<string, string>; close(): void } | undefined;
   private cleanedUp: boolean = false;
   private signalHandler: (() => void) | undefined;
   /** Refcount of project markers we created, keyed by absolute repositoryPath.
@@ -201,8 +212,10 @@ export class OpenCodeProvider implements AgentProvider {
   constructor(options?: OpenCodeProviderOptions) {
     if (options?._client) {
       this._client = options._client;
+    } else if (options?._v2Client) {
+      this._client = adaptOpenCodeClient(options._v2Client);
     }
-    this.skipProjectMarker = !!options?._client;
+    this.skipProjectMarker = !!(options?._client || options?._v2Client);
   }
 
   checkPrerequisites(): void {
@@ -223,13 +236,16 @@ export class OpenCodeProvider implements AgentProvider {
     }
 
     // Verify opencode binary is installed
+    if (!('withResolvers' in Promise)) {
+      throw new Error('The OpenCode 2 provider requires Node.js 22 or newer.');
+    }
     await verifyOpenCodeInstalled();
 
-    const { createOpencodeClient } = await import('@opencode-ai/sdk/v2/client');
+    const { OpenCode } = await import('@opencode-ai/client');
 
     logProgress(TAG, 'Starting OpenCode server...');
     this._server = await spawnOpencodeServer();
-    this._client = createOpencodeClient({ baseUrl: this._server.url }) as OpenCodeClient;
+    this._client = adaptOpenCodeClient(OpenCode.make({ baseUrl: this._server.url, headers: this._server.headers }));
     logProgress(TAG, `OpenCode server started at ${this._server.url}`);
 
     // Register signal handlers for cleanup on unexpected exit.
@@ -273,7 +289,7 @@ export class OpenCodeProvider implements AgentProvider {
     }
 
     const models = provider.models ? Object.keys(provider.models) : [];
-    if (models.length > 0 && !models.includes(this.modelID)) {
+    if (provider.models && !models.includes(this.modelID)) {
       const availableModels = models.map(m => `${this.providerID}/${m}`).join(', ');
       const availableProviders = providers.map(p => p.id).join(', ') || '(none)';
       throw new FatalProviderError(
