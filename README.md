@@ -54,7 +54,7 @@ There are almost certainly other ways of achieving this, but to our mind, this a
 - **Node.js 20+**
 - **An agent provider**, required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks). Either:
   - An **Anthropic API key** for the default `claude-code` provider, or
-  - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports, including some **free options**.
+  - **[OpenCode 2](https://opencode.ai/v2/)** installed (`npm install -g @opencode/cli@2`) and authenticated for the `opencode` provider. This provider requires **Node.js 22+**.
 
   See [Scanning → Agent Providers](docs/scanning.md#agent-providers) for the full comparison.
 - For checks that use `opengrep` discovery: **[Opengrep](https://github.com/opengrep/opengrep)** (LGPL-2.1)

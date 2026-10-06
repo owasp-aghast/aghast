@@ -1,0 +1,15 @@
+{
+  "providers": {
+    "opencode": {
+      "name": "OpenCode free CI model",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://opencode.ai/zen/v1",
+        "apiKey": "public"
+      },
+      "models": {
+        "big-pickle": {}
+      }
+    }
+  }
+}

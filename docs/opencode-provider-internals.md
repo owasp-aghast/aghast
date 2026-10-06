@@ -2,6 +2,75 @@
 
 Developer notes for `src/opencode-provider.ts`. Documents dead ends and confirmed findings from investigation so they aren't re-explored.
 
+## OpenCode 2 adapter (2.0.23)
+
+`src/opencode-client.ts` maps the published Promise client into the provider's
+internal contract. The dependency named `@opencode-ai/client` is an npm alias of
+`@opencode/client@2.0.23`: the old scope's default release is a placeholder, while
+the stable client and CLI use `@opencode/*`. CI installs `@opencode/cli@2.0.23`.
+The client event implementation uses `Promise.withResolvers`, so this provider
+requires Node.js 22+; Aghast's other providers retain Node.js 20 support.
+
+Sources: [JavaScript client guide](https://opencode.ai/v2/docs/build/client/),
+[HTTP API reference](https://opencode.ai/v2/docs/api), and
+[permissions](https://opencode.ai/v2/docs/permissions/). The pinned package's
+generated declarations determine the exact request shapes.
+
+| Provider operation | OpenCode 2 mapping |
+| --- | --- |
+| Model validation/listing | Wait for the last guarded built-in plugin (`opencode.config.policy`) to enter the inventory, then join `provider.list().data` and enabled `model.list().data` by provider ID; use the selectable model `id`, not upstream `modelID` |
+| Session creation | `session.create({ title, location: { directory }, permissions })` |
+| Read-only permissions | Wildcard deny followed by read/glob/grep/list allows; shell is approval-gated and every request is automatically rejected through the permission API |
+| Prompt | `session.switchModel()`, then `session.prompt({ sessionID, text })`, `session.wait()`, and `message.list()` for the latest assistant message |
+| Structured output | Append the JSON schema to the prompt and parse text with Aghast's existing parser; v2 has no legacy prompt `format` field |
+| Token usage/cost | Session totals include all steps in the tool loop |
+| Events | Map `session.tool.*` to existing tool-progress logging and terminal execution failures/interruption to session errors; ignore retryable step failures |
+
+The owned `opencode serve` process announces a URL and password on stdout.
+Capture both (or use `OPENCODE_PASSWORD` / legacy `OPENCODE_SERVER_PASSWORD`
+when set, since the password banner is then omitted), send Basic authentication
+as `opencode`, and never forward the password to logs. Cleanup stops the owned process tree, including the Windows
+command wrapper. Request cancellation propagates through model selection,
+prompt submission, completion wait, and result retrieval.
+
+`tests/opencode-v2.test.ts` exercises the real published client using a local
+fetch transport, without credentials or LLM calls. Existing provider tests keep
+their injected client and remain unchanged. Live tests still require providers
+configured in OpenCode 2. CI explicitly enables anonymous `opencode/big-pickle`
+using `.github/opencode-install/ci-config.json` through `OPENCODE_CONFIG`. It uses
+the native OpenAI-compatible runtime, `https://opencode.ai/zen/v1`, and the `public`
+key; no paid provider credentials or local inference runtime are needed.
+
+On 2026-10-06, isolated experiments reproduced Zen's misleading "free tier can
+only be used from within OpenCode" rejection: default API permissions succeeded,
+while even denying only `shell` failed. Making shell approval-gated succeeded.
+The adapter therefore keeps other non-read-only tools denied and polls the owned
+session's pending permissions independently of the optional progress SSE stream,
+always replying `reject` to shell requests. Rejection includes feedback so the
+model can continue with read-only tools. Transport failures abort the prompt and
+interrupt the session; polling is cancelled on completion or caller cancellation.
+All five unchanged live integration tests passed in an empty project with isolated
+OpenCode config/data/cache and the anonymous CI configuration. A separate live
+probe confirmed that Aghast actually sent `decision: "reject"` for a shell request
+and the model continued successfully.
+
+OpenCode applies saved project approvals after session `ask` rules. Before sending
+a prompt, the adapter refuses projects with saved shell approvals (including
+wildcard actions), leaving those user approvals untouched. The permission API is
+accessed with the session's project ID and directory, not the server's default
+directory. Use an isolated project or remove conflicting saved approvals in
+OpenCode. The owned server is private: do not concurrently modify its session or
+project permission state from another client while a scan is running.
+
+The HTTP listening banner does not imply plugin readiness;
+catalog reads wait up to 30 seconds for activation rather than misreporting an
+initially empty catalog as an unconfigured provider.
+
+## Historical OpenCode 1 observations
+
+The notes below describe the legacy SDK and server and are retained for context.
+Their endpoints, events, and flags do not define the OpenCode 2 integration.
+
 ---
 
 ## SSE event types (opencode v1.15.5)
