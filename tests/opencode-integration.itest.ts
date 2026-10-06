@@ -2,7 +2,7 @@
  * Real OpenCode integration tests.
  * These tests actually invoke the OpenCode SDK and send prompts to a real LLM.
  * Uses the model from REGRESSION_TEST_MODEL env var (defaults to opencode/big-pickle).
- * Requires opencode CLI to be installed (npm install -g opencode-ai).
+ * Requires OpenCode 2 CLI (npm install -g @opencode/cli@2) and Node.js 22+.
  * Skip explicitly by setting AGHAST_SKIP_OPENCODE_TESTS=true.
  */
 
