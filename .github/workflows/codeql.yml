@@ -23,8 +23,12 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze (javascript-typescript)
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript]
     permissions:
       security-events: write
       contents: read
@@ -37,10 +41,10 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66 # v3
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
           queries: security-extended
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66 # v3
         with:
-          category: /language:javascript-typescript
+          category: /language:${{ matrix.language }}
