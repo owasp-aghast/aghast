@@ -135,16 +135,19 @@ export class ClaudeCodeProvider implements AgentProvider {
   private _queryFn: QueryFn | undefined;
   private _listModelsFn: (() => Promise<readonly ProviderModelInfo[]>) | undefined;
   private _listSupportedModelsFn: (() => Promise<readonly ProviderModelInfo[]>) | undefined;
+  private _listApiModelsFn: ((apiKey: string) => Promise<readonly ProviderModelInfo[]>);
   private _detectLocalLogin: () => Promise<boolean>;
   constructor(options?: {
     _queryFn?: QueryFn;
     _listModelsFn?: () => Promise<readonly ProviderModelInfo[]>;
     _listSupportedModelsFn?: () => Promise<readonly ProviderModelInfo[]>;
+    _listApiModelsFn?: (apiKey: string) => Promise<readonly ProviderModelInfo[]>;
     _detectLocalLogin?: () => Promise<boolean>;
   }) {
     this._queryFn = options?._queryFn;
     this._listModelsFn = options?._listModelsFn;
     this._listSupportedModelsFn = options?._listSupportedModelsFn;
+    this._listApiModelsFn = options?._listApiModelsFn ?? listModelsViaApiKey;
     this._detectLocalLogin = options?._detectLocalLogin ?? detectLocalLogin;
   }
 
@@ -211,7 +214,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     const apiKey = this.apiKey ?? process.env.ANTHROPIC_API_KEY;
     if (apiKey) {
       try {
-        return await listModelsViaApiKey(apiKey);
+        return await this._listApiModelsFn(apiKey);
       } catch (err) {
         logDebug(TAG, `models.list() via API key failed, falling back to agent-SDK: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -236,12 +239,33 @@ export class ClaudeCodeProvider implements AgentProvider {
   }
 
   private async validateConfiguredModel(model: string): Promise<void> {
-    let supportedModels: readonly ProviderModelInfo[];
+    let supportedModels: readonly ProviderModelInfo[] = [];
     try {
       supportedModels = await this.listSupportedModels();
     } catch (err) {
-      logWarn(TAG, `Could not validate configured model "${model}" before scanning: ${err instanceof Error ? err.message : String(err)}. Continuing without preflight validation.`);
-      return;
+      logWarn(TAG, `Could not retrieve Claude Code's model picker for "${model}": ${err instanceof Error ? err.message : String(err)}.`);
+    }
+
+    if (supportedModels.some((supported) => supported.id === model)) return;
+
+    // supportedModels() is a curated picker, not an exhaustive list of full IDs.
+    // Use the API as the authority for canonical names; in local mode (or when
+    // discovery fails), leave their validation to the actual model request.
+    const canonicalId = model.replace(/\[1m\]$/, '');
+    if (/^claude-[a-z0-9]+(?:-[a-z0-9]+)+$/.test(canonicalId)) {
+      if (!this.apiKey) return;
+      try {
+        const apiModels = await this._listApiModelsFn(this.apiKey);
+        if (apiModels.some((supported) => supported.id === canonicalId)) return;
+        if (apiModels.length === 0) {
+          logWarn(TAG, `Could not validate configured model "${model}" because Anthropic returned no models. Continuing without preflight validation.`);
+          return;
+        }
+        supportedModels = apiModels;
+      } catch (err) {
+        logWarn(TAG, `Could not validate configured model "${model}" via Anthropic: ${err instanceof Error ? err.message : String(err)}. Continuing without preflight validation.`);
+        return;
+      }
     }
 
     if (supportedModels.length === 0) {
@@ -485,6 +509,10 @@ export class ClaudeCodeProvider implements AgentProvider {
               }
             }
             tokenUsage = {
+              perModel: Object.fromEntries(Object.entries(resultMsg.modelUsage).map(([id, usage]) => [id, {
+                ...usage,
+                totalTokens: usage.inputTokens + usage.outputTokens,
+              }])),
               inputTokens,
               outputTokens,
               cacheCreationInputTokens,

@@ -1,7 +1,7 @@
 /**
  * Cost calculator: maps token usage to estimated USD cost using per-model pricing.
  *
- * Pricing is loaded from `config/pricing.json` (built-in defaults) and may be
+ * Pricing is refreshed from models.dev with cached and bundled defaults, and may be
  * overridden via the runtime config `pricing` section. Prices change over time
  * and are not authoritative — they are estimates for budgeting/dashboarding.
  */
@@ -79,6 +79,14 @@ export function calculateCost(
 
   if (!tokens) {
     return { inputCost: 0, outputCost: 0, totalCost: 0, currency, source: 'estimated' };
+  }
+
+  if (tokens.perModel && Object.keys(tokens.perModel).length > 0) {
+    const costs = Object.entries(tokens.perModel).map(([id, usage]) => calculateCost(usage, id, pricing));
+    const result = sumCosts(costs);
+    // A partial estimate must still signal that some models have no price.
+    if (costs.some((cost) => cost.source === 'estimated-unpriced')) result.source = 'estimated-unpriced';
+    return result;
   }
 
   const rates = pricing.models[model];
@@ -286,5 +294,5 @@ export function formatCostSourceLabel(
   }
   if (source === 'estimated-unpriced') return '(estimated — model not in pricing table)';
   if (source === 'legacy') return '(legacy estimate)';
-  return '(estimated from config/pricing.json)';
+  return '(estimated from pricing rates)';
 }

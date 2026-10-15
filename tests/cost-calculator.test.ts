@@ -22,6 +22,43 @@ const TEST_PRICING: PricingConfig = {
 };
 
 describe('calculateCost', () => {
+  it('prices actual SDK model usage instead of the configured alias, including multiple models', () => {
+    const cost = calculateCost({
+      inputTokens: 2_000_000, outputTokens: 0, totalTokens: 2_000_000,
+      perModel: {
+        'test-haiku': { inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000, cacheReadInputTokens: 1_000_000 },
+        'test-opus': { inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 },
+      },
+    }, 'haiku', { models: {
+      ...TEST_PRICING.models,
+      'test-haiku': { ...TEST_PRICING.models['test-haiku'], cacheReadPerMillion: 0.1 },
+      haiku: { inputPerMillion: 999, outputPerMillion: 999 },
+    } });
+    assert.equal(cost.totalCost, 16.1);
+    assert.equal(cost.source, 'estimated');
+  });
+
+  it('retains reported costs, including zero, ahead of actual model estimates', () => {
+    for (const amountUsd of [0, 0.5]) {
+      const cost = calculateCost({
+        inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000,
+        perModel: { 'test-opus': { inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 } },
+        reportedCost: { amountUsd, source: 'claude-agent-sdk' },
+      }, 'haiku', TEST_PRICING);
+      assert.equal(cost.totalCost, amountUsd);
+      assert.equal(cost.source, 'reported');
+    }
+  });
+
+  it('does not substitute alias prices for an unknown actual model', () => {
+    const cost = calculateCost({
+      inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000,
+      perModel: { 'unknown-new-model': { inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 } },
+    }, 'test-haiku', TEST_PRICING);
+    assert.equal(cost.totalCost, 0);
+    assert.equal(cost.source, 'estimated-unpriced');
+  });
+
   it('computes cost from token counts and pricing', () => {
     // 1,000,000 input tokens at $1/M = $1.00; 200,000 output tokens at $5/M = $1.00
     const cost = calculateCost(
@@ -111,18 +148,21 @@ describe('loadDefaultPricing', () => {
   it('loads built-in config/pricing.json with current Claude models', async () => {
     const pricing = await loadDefaultPricing();
     assert.equal(pricing.currency, 'USD');
-    // Current generally available models, plus the limited-availability Mythos 5.
+    // Current models and older versions retained for pinned configurations.
     assert.ok(pricing.models['claude-haiku-4-5'], 'haiku entry exists');
     assert.ok(pricing.models['claude-haiku-4-5-20251001'], 'pinned haiku entry exists');
     assert.ok(pricing.models['claude-sonnet-5'], 'sonnet entry exists');
     assert.ok(pricing.models['claude-opus-4-8'], 'latest opus entry exists');
     assert.ok(pricing.models['claude-fable-5'], 'fable entry exists');
     assert.ok(pricing.models['claude-mythos-5'], 'mythos entry exists');
+    for (const id of ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-6', 'claude-fable-5-1', 'claude-mythos-5-1']) {
+      assert.ok(pricing.models[id], `${id} entry exists`);
+    }
     assert.equal(typeof pricing.models['claude-haiku-4-5'].inputPerMillion, 'number');
     assert.equal(typeof pricing.models['claude-haiku-4-5'].outputPerMillion, 'number');
   });
 
-  it('prices Opus 4.8 and the opus alias at current published rates', async () => {
+  it('retains pinned Opus 4.8 prices and updates the opus alias to Opus 5.5', async () => {
     const pricing = await loadDefaultPricing();
     const opus48 = pricing.models['claude-opus-4-8'];
     const opusAlias = pricing.models.opus;
@@ -133,7 +173,37 @@ describe('loadDefaultPricing', () => {
       cacheReadPerMillion: 0.5,
       cacheWritePerMillion: 6.25,
     });
-    assert.deepEqual(opusAlias, opus48);
+    assert.deepEqual(opusAlias, {
+      inputPerMillion: 4,
+      outputPerMillion: 20,
+      cacheReadPerMillion: 0.2,
+      cacheWritePerMillion: 5,
+    });
+    assert.deepEqual(opusAlias, pricing.models['claude-opus-5-5']);
+  });
+
+  it('uses the published discounted cache rates for new models', async () => {
+    const pricing = await loadDefaultPricing();
+    assert.equal(pricing.models['claude-sonnet-5-5'].cacheReadPerMillion, 0.1);
+    assert.equal(pricing.models['claude-fable-5-1'].cacheReadPerMillion, 0.25);
+    assert.equal(pricing.models['claude-mythos-5-1'].cacheReadPerMillion, 0.25);
+    assert.deepEqual(pricing.models.sonnet, pricing.models['claude-sonnet-5-5']);
+    const cost = calculateCost({
+      inputTokens: 1_000_000, outputTokens: 1_000_000, totalTokens: 2_000_000,
+      cacheReadInputTokens: 1_000_000, cacheCreationInputTokens: 1_000_000,
+    }, 'claude-opus-5-5', pricing);
+    assert.equal(cost.totalCost, 29.2);
+  });
+
+  it('uses conservative long-prompt fallback rates for Haiku 5.5', async () => {
+    const pricing = await loadDefaultPricing();
+    assert.deepEqual(pricing.models['claude-haiku-5-5'], {
+      inputPerMillion: 0.5,
+      outputPerMillion: 2.5,
+      cacheReadPerMillion: 0.05,
+      cacheWritePerMillion: 0.625,
+    });
+    assert.deepEqual(pricing.models.haiku, pricing.models['claude-haiku-5-5']);
   });
 
   it('cost matches expected for default haiku pricing', async () => {
