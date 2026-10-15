@@ -1773,6 +1773,20 @@ describe('runMultiScan (fatal error abort)', () => {
 });
 
 describe('sumTokenUsage', () => {
+  it('preserves actual model IDs and combines each model separately', () => {
+    const a = { inputTokens: 100, outputTokens: 50, totalTokens: 150 };
+    const b = { inputTokens: 20, outputTokens: 10, totalTokens: 30 };
+    const result = sumTokenUsage([
+      { ...a, perModel: { 'claude-haiku-5-5': a } },
+      { inputTokens: 120, outputTokens: 60, totalTokens: 180, perModel: { 'claude-haiku-5-5': a, 'claude-sonnet-5-5': b } },
+    ]);
+    assert.equal(result!.perModel!['claude-haiku-5-5'].inputTokens, 200);
+    assert.equal(result!.perModel!['claude-haiku-5-5'].outputTokens, 100);
+    assert.equal(result!.perModel!['claude-sonnet-5-5'].totalTokens, 30);
+    assert.equal(result!.totalTokens, 330);
+    assert.equal(sumTokenUsage([{ ...a, perModel: { 'claude-haiku-5-5': a } }, b])!.perModel, undefined);
+  });
+
   it('returns undefined when all inputs are undefined', () => {
     assert.equal(sumTokenUsage([undefined, undefined]), undefined);
   });

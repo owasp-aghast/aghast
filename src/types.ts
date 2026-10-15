@@ -11,6 +11,8 @@ export const MOCK_MODEL_NAME = 'mock';
 // --- Token Usage ---
 
 export interface TokenUsage {
+  /** Usage keyed by actual model IDs reported by the SDK, for fallback pricing. */
+  perModel?: Record<string, Omit<TokenUsage, 'perModel' | 'reportedCost'>>;
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens?: number;

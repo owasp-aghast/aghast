@@ -35,11 +35,13 @@ prompt submission, completion wait, and result retrieval.
 
 `tests/opencode-v2.test.ts` exercises the real published client using a local
 fetch transport, without credentials or LLM calls. Existing provider tests keep
-their injected client and remain unchanged. Live tests still require providers
-configured in OpenCode 2. CI explicitly enables anonymous `opencode/big-pickle`
-using `.github/opencode-install/ci-config.json` through `OPENCODE_CONFIG`. It uses
-the native OpenAI-compatible runtime, `https://opencode.ai/zen/v1`, and the `public`
-key; no paid provider credentials or local inference runtime are needed.
+their injected client and remain unchanged. CI uses OpenCode's built-in anonymous
+`opencode/big-pickle` provider; no paid provider credentials or local inference
+runtime are needed. Do not override its package or endpoint with a generic
+OpenAI-compatible provider. On 2026-10-15, the former CI override (`/zen/v1`,
+`apiKey: public`) failed with the free-tier rejection even with default session
+permissions on both CLI 2.0.23 and 2.0.29. Removing that override restored free
+inference on the pinned 2.0.23, including Aghast's read-only session permissions.
 
 On 2026-10-06, isolated experiments reproduced Zen's misleading "free tier can
 only be used from within OpenCode" rejection: default API permissions succeeded,

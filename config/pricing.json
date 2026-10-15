@@ -1,7 +1,49 @@
 {
-  "_comment": "AI provider pricing in USD per 1,000,000 tokens. Prices change over time and may need updates. Last verified: 2026-07. Cache rates: reads ~10% of input rate, writes ~125% of input rate (Anthropic published multipliers).",
+  "_comment": "Anthropic standard global API pricing in USD per 1,000,000 tokens. Verified 2026-10-14: https://platform.claude.com/docs/en/about-claude/pricing. Cache writes use the 5-minute rate. Aliases assume current Anthropic API defaults; older SDKs and custom alias mappings may differ. Haiku 5.5 uses the conservative over-100k prompt rates because aggregate usage cannot identify per-request tiers (up-to-100k rates: input 0.10, output 0.50, cache read 0.01, cache write 0.125). Provider-reported cost takes precedence.",
   "currency": "USD",
   "models": {
+    "claude-haiku-5-5": {
+      "inputPerMillion": 0.5,
+      "outputPerMillion": 2.5,
+      "cacheReadPerMillion": 0.05,
+      "cacheWritePerMillion": 0.625
+    },
+    "claude-sonnet-5-5": {
+      "inputPerMillion": 2.0,
+      "outputPerMillion": 10.0,
+      "cacheReadPerMillion": 0.1,
+      "cacheWritePerMillion": 2.5
+    },
+    "claude-opus-5-5": {
+      "inputPerMillion": 4.0,
+      "outputPerMillion": 20.0,
+      "cacheReadPerMillion": 0.2,
+      "cacheWritePerMillion": 5.0
+    },
+    "claude-opus-5": {
+      "inputPerMillion": 5.0,
+      "outputPerMillion": 25.0,
+      "cacheReadPerMillion": 0.5,
+      "cacheWritePerMillion": 6.25
+    },
+    "claude-opus-4-6": {
+      "inputPerMillion": 5.0,
+      "outputPerMillion": 25.0,
+      "cacheReadPerMillion": 0.5,
+      "cacheWritePerMillion": 6.25
+    },
+    "claude-fable-5-1": {
+      "inputPerMillion": 10.0,
+      "outputPerMillion": 50.0,
+      "cacheReadPerMillion": 0.25,
+      "cacheWritePerMillion": 12.5
+    },
+    "claude-mythos-5-1": {
+      "inputPerMillion": 10.0,
+      "outputPerMillion": 50.0,
+      "cacheReadPerMillion": 0.25,
+      "cacheWritePerMillion": 12.5
+    },
     "claude-haiku-4-5": {
       "inputPerMillion": 1.0,
       "outputPerMillion": 5.0,
@@ -51,22 +93,22 @@
       "cacheWritePerMillion": 12.5
     },
     "haiku": {
-      "inputPerMillion": 1.0,
-      "outputPerMillion": 5.0,
-      "cacheReadPerMillion": 0.1,
-      "cacheWritePerMillion": 1.25
+      "inputPerMillion": 0.5,
+      "outputPerMillion": 2.5,
+      "cacheReadPerMillion": 0.05,
+      "cacheWritePerMillion": 0.625
     },
     "sonnet": {
-      "inputPerMillion": 3.0,
-      "outputPerMillion": 15.0,
-      "cacheReadPerMillion": 0.3,
-      "cacheWritePerMillion": 3.75
+      "inputPerMillion": 2.0,
+      "outputPerMillion": 10.0,
+      "cacheReadPerMillion": 0.1,
+      "cacheWritePerMillion": 2.5
     },
     "opus": {
-      "inputPerMillion": 5.0,
-      "outputPerMillion": 25.0,
-      "cacheReadPerMillion": 0.5,
-      "cacheWritePerMillion": 6.25
+      "inputPerMillion": 4.0,
+      "outputPerMillion": 20.0,
+      "cacheReadPerMillion": 0.2,
+      "cacheWritePerMillion": 5.0
     }
   }
 }

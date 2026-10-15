@@ -33,6 +33,88 @@ function successResult(): Record<string, unknown> {
 }
 
 describe('ClaudeCodeProvider: API error handling', () => {
+  it('accepts a new canonical model from the API even when the SDK picker omits it', async () => {
+    let requestedModel: unknown;
+    const provider = new ClaudeCodeProvider({
+      _queryFn: (params) => {
+        requestedModel = params.options.model;
+        return createFakeQueryFn([successResult()])(params);
+      },
+      _listSupportedModelsFn: async () => [{ id: 'haiku' }, { id: 'sonnet' }],
+      _listApiModelsFn: async (key) => {
+        assert.equal(key, 'test-key');
+        return [{ id: 'claude-sonnet-5-5' }];
+      },
+    });
+    await provider.initialize({ apiKey: 'test-key', model: 'claude-sonnet-5-5' });
+    assert.equal(provider.getModelName(), 'claude-sonnet-5-5');
+    await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.equal(requestedModel, 'claude-sonnet-5-5');
+  });
+
+  it('validates canonical IDs through the API even when SDK discovery fails', async () => {
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => { throw new Error('SDK unavailable'); },
+      _listApiModelsFn: async () => [{ id: 'claude-sonnet-5-5' }],
+    });
+    await provider.initialize({ apiKey: 'test-key', model: 'claude-sonnet-5-5[1m]' });
+    await assert.rejects(
+      () => provider.initialize({ apiKey: 'test-key', model: 'claude-sonnet-999' }),
+      /does not support configured model "claude-sonnet-999"/,
+    );
+  });
+
+  it('rejects a canonical model absent from a successful API response', async () => {
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => [{ id: 'sonnet' }],
+      _listApiModelsFn: async () => [{ id: 'claude-sonnet-5-5' }],
+    });
+    await assert.rejects(
+      () => provider.initialize({ apiKey: 'test-key', model: 'claude-sonnet-999' }),
+      /does not support configured model "claude-sonnet-999"/,
+    );
+  });
+
+  it('leaves full model IDs to runtime validation in local-session mode', async () => {
+    const originalKey = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const provider = new ClaudeCodeProvider({
+        _detectLocalLogin: async () => true,
+        _listSupportedModelsFn: async () => [{ id: 'sonnet' }],
+        _listApiModelsFn: async () => { throw new Error('API must not be called'); },
+      });
+      await provider.initialize({ model: 'claude-sonnet-5-5' });
+      assert.equal(provider.getModelName(), 'claude-sonnet-5-5');
+    } finally {
+      if (originalKey !== undefined) process.env.ANTHROPIC_API_KEY = originalKey;
+    }
+  });
+
+  it('does not block canonical IDs when API discovery fails or returns no models', async () => {
+    for (const listApiModels of [
+      async () => { throw new Error('API unavailable'); },
+      async () => [],
+    ]) {
+      const provider = new ClaudeCodeProvider({
+        _listSupportedModelsFn: async () => [{ id: 'sonnet' }],
+        _listApiModelsFn: listApiModels,
+      });
+      await provider.initialize({ apiKey: 'test-key', model: 'claude-sonnet-5-5' });
+    }
+  });
+
+  it('accepts SDK aliases without querying the canonical API list', async () => {
+    let apiCalls = 0;
+    const provider = new ClaudeCodeProvider({
+      _listSupportedModelsFn: async () => [{ id: 'sonnet' }],
+      _listApiModelsFn: async () => { apiCalls++; return []; },
+    });
+    await provider.initialize({ apiKey: 'test-key', model: 'sonnet' });
+    assert.equal(provider.getModelName(), 'sonnet');
+    assert.equal(apiCalls, 0);
+  });
+
   it('rejects an unsupported configured model before executing a check', async () => {
     const provider = new ClaudeCodeProvider({
       _listSupportedModelsFn: async () => [{ id: 'haiku' }, { id: 'sonnet' }],
@@ -350,6 +432,10 @@ describe('ClaudeCodeProvider: token usage extraction', () => {
     assert.equal(result.tokenUsage!.inputTokens, 500);
     assert.equal(result.tokenUsage!.outputTokens, 150);
     assert.equal(result.tokenUsage!.totalTokens, 650);
+    assert.deepEqual(result.tokenUsage!.perModel, {
+      'claude-sonnet-4-20250514': { inputTokens: 300, outputTokens: 100, totalTokens: 400 },
+      'claude-haiku-3-20240307': { inputTokens: 200, outputTokens: 50, totalTokens: 250 },
+    });
   });
 
   it('falls back to usage (snake_case) when modelUsage is absent', async () => {

@@ -9,6 +9,7 @@ import { resolve, dirname } from 'node:path';
 import { runMultiScanWithCost, type MultiScanOptions } from './scan-runner.js';
 import type { JudgeOptions } from './judge.js';
 import { loadDefaultPricing, mergePricing, formatCostSourceLabel } from './cost-calculator.js';
+import { loadPricing } from './pricing-loader.js';
 import type { BudgetLimits } from './budget.js';
 import { saveScanRecord, queryScanHistory, type ScanRecord } from './scan-history.js';
 import { writeIndividualIssueFiles, type IndividualIssueFormat } from './issue-file-writer.js';
@@ -178,6 +179,8 @@ Environment variables:
                               back to a logged-in local Claude session
   AGHAST_CONFIG_DIR           Default config directory (CLI --config-dir takes precedence)
   AGHAST_AI_MODEL             AI model override (CLI --model takes precedence)
+  AGHAST_PRICING_OFFLINE      Set to true to use cached/bundled prices without refresh
+  AGHAST_PRICING_CACHE_FILE   Override the automatic pricing cache file path
   AGHAST_GENERIC_PROMPT       Generic prompt template filename (CLI --generic-prompt takes precedence)
   AGHAST_DEBUG                Set to "true" to enable debug output (same as --debug)
   AGHAST_LOG_LEVEL            Console log level (CLI --log-level takes precedence)
@@ -936,7 +939,7 @@ export async function runScan(args: string[]): Promise<void> {
   }
 
   // ─── Pricing + budget setup ───
-  const defaultPricing = await loadDefaultPricing();
+  const defaultPricing = useMock ? await loadDefaultPricing() : await loadPricing();
   const pricing = mergePricing(defaultPricing, runtimeConfig.pricing);
 
   const budgetLimits: BudgetLimits | undefined = (() => {

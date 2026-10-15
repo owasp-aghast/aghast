@@ -165,7 +165,22 @@ export function sumTokenUsage(usages: (TokenUsage | undefined)[]): TokenUsage | 
     reportedCost = { amountUsd: total, source: defined[0].reportedCost!.source };
   }
 
+  let perModel: TokenUsage['perModel'];
+  // Only retain a breakdown when it covers all usage; never price partial totals.
+  if (defined.every((u) => u.perModel && Object.keys(u.perModel).length > 0)) {
+    const byModel = new Map<string, TokenUsage[]>();
+    for (const usage of defined) {
+      for (const [id, tokens] of Object.entries(usage.perModel!)) {
+        const entries = byModel.get(id) ?? [];
+        entries.push(tokens);
+        byModel.set(id, entries);
+      }
+    }
+    perModel = Object.fromEntries([...byModel].map(([id, entries]) => [id, sumTokenUsage(entries)!]));
+  }
+
   return {
+    ...(perModel ? { perModel } : {}),
     inputTokens: defined.reduce((sum, u) => sum + u.inputTokens, 0),
     outputTokens: defined.reduce((sum, u) => sum + u.outputTokens, 0),
     cacheCreationInputTokens: sumOptional((u) => u.cacheCreationInputTokens),

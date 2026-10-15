@@ -71,15 +71,31 @@ However, OpenCode's cost reporting has documented accuracy issues:
 Treat the OpenCode figure as an estimate; reconcile against your provider
 console for billing decisions.
 
-### 3. `config/pricing.json` rate fallback — `(estimated from config/pricing.json)`
+### 3. Automatic rate fallback — `(estimated from pricing rates)`
 
 Used only when neither of the above sources reports a cost. This happens when
 using a custom agent provider, or when the SDK does not return a cost field.
 
-AGHAST ships with hand-maintained per-million-token rates for Haiku, Sonnet,
-and Opus in `config/pricing.json`. These are estimates: provider pricing
-changes over time. You can override them via the `pricing` section of
-`runtime-config.json`:
+AGHAST automatically fetches per-million-token prices from the public
+[models.dev catalog](https://github.com/anomalyco/models.dev), including input,
+output, cache reads, and cache writes for Claude models. New model prices are
+discovered without updating AGHAST. Other providers use their reported costs
+or explicit pricing overrides.
+
+Rates are cached in `~/.aghast/pricing-cache.json` and refreshed on the next
+scan after 24 hours. Requests time out after 3 seconds. If refreshing fails,
+AGHAST uses stale cached rates, then the bundled `config/pricing.json` snapshot
+for missing models. The snapshot is an offline fallback, not the primary
+pricing source. Mock scans use only the snapshot for reproducible results.
+
+Set `AGHAST_PRICING_OFFLINE=true` to disable network refresh, or set
+`AGHAST_PRICING_CACHE_FILE` to choose another cache path. Pricing requests
+send no credentials, code, or scan data. The catalog is community maintained;
+its rates are estimates and may lag provider changes.
+
+You can override discovered prices via the `pricing` section of
+`runtime-config.json`. These overrides take precedence over all rate tables;
+provider-reported costs take precedence over estimates:
 
 ```json
 {
@@ -95,6 +111,19 @@ changes over time. You can override them via the `pricing` section of
   }
 }
 ```
+
+When the SDK reports usage by model, fallback estimates use those actual model
+IDs, including separate prices when a call uses multiple models. AGHAST does
+not guess which version an alias such as `haiku` means. If the SDK omits both
+the cost and the model breakdown, estimates require a configured full model ID
+or an explicit pricing override for the alias; otherwise the cost is marked
+unpriced. Provider-reported costs always take precedence, including reported $0.
+
+Haiku 5.5 charges different rates for prompts up to 100,000 tokens and prompts
+over that threshold, including cached tokens. AGHAST's aggregate token counts
+cannot distinguish each request's prompt length, so the catalog importer uses
+the highest published context-tier rates. This can
+overestimate short-request costs. Provider-reported costs still take precedence.
 
 ---
 
@@ -151,7 +180,7 @@ Budget limits in local-Claude mode apply to equivalent API cost, not subscriptio
 | `(reported by claude-agent-sdk)` | Authoritative total from the Claude Agent SDK |
 | `(covered by subscription — claude-agent-sdk)` | API-equivalent figure; no charge (subscription mode) |
 | `(reported by opencode — see docs/cost-tracking.md)` | OpenCode-computed total; see caveats above |
-| `(estimated from config/pricing.json)` | Rate-table fallback using local pricing file |
+| `(estimated from pricing rates)` | Rate fallback using automatic, cached, bundled, or custom prices |
 | `(estimated — model not in pricing table)` | Model not found in pricing; cost reported as $0 |
 | `(legacy estimate)` | Record written before source tracking was added |
 
