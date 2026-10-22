@@ -329,15 +329,14 @@ jobs:
 
       - run: npm ci
 
-      - run: echo "semgrep==1.161.0" > requirements.txt
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.x'
           cache: 'pip'
+          cache-dependency-path: '.github/semgrep/requirements.txt'
 
       - name: Install Semgrep
-        run: pip install -r requirements.txt
+        run: pip install -r .github/semgrep/requirements.txt
 
       - name: Run Semgrep integration tests
         run: npm run test:semgrep
@@ -558,15 +557,14 @@ jobs:
           npm ci --prefix .github/opencode-install
           echo "$GITHUB_WORKSPACE/.github/opencode-install/node_modules/.bin" >> $GITHUB_PATH
 
-      - run: echo "semgrep==1.161.0" > requirements.txt
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.x'
           cache: 'pip'
+          cache-dependency-path: '.github/semgrep/requirements.txt'
 
       - name: Install Semgrep
-        run: pip install -r requirements.txt
+        run: pip install -r .github/semgrep/requirements.txt
 
       - name: Clone public checks repo
         run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public

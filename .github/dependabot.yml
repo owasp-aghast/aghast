@@ -8,3 +8,7 @@ updates:
       all-actions:
         patterns:
           - "*"
+  - package-ecosystem: "pip"
+    directory: "/.github/semgrep"
+    schedule:
+      interval: "weekly"
