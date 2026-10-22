@@ -2,12 +2,12 @@
 
 Developer notes for `src/opencode-provider.ts`. Documents dead ends and confirmed findings from investigation so they aren't re-explored.
 
-## OpenCode 2 adapter (2.0.23)
+## OpenCode 2 adapter (2.1.2)
 
 `src/opencode-client.ts` maps the published Promise client into the provider's
 internal contract. The dependency named `@opencode-ai/client` is an npm alias of
-`@opencode/client@2.0.23`: the old scope's default release is a placeholder, while
-the stable client and CLI use `@opencode/*`. CI installs `@opencode/cli@2.0.23`.
+`@opencode/client@2.1.2`: the old scope's default release is a placeholder, while
+the stable client and CLI use `@opencode/*`. CI installs `@opencode/cli@2.1.2`.
 The client event implementation uses `Promise.withResolvers`, so this provider
 requires Node.js 22+; Aghast's other providers retain Node.js 20 support.
 
@@ -40,8 +40,8 @@ their injected client and remain unchanged. CI uses OpenCode's built-in anonymou
 runtime are needed. Do not override its package or endpoint with a generic
 OpenAI-compatible provider. On 2026-10-15, the former CI override (`/zen/v1`,
 `apiKey: public`) failed with the free-tier rejection even with default session
-permissions on both CLI 2.0.23 and 2.0.29. Removing that override restored free
-inference on the pinned 2.0.23, including Aghast's read-only session permissions.
+permissions on both CLI 2.1.2 and 2.0.29. Removing that override restored free
+inference on the pinned 2.1.2, including Aghast's read-only session permissions.
 
 On 2026-10-06, isolated experiments reproduced Zen's misleading "free tier can
 only be used from within OpenCode" rejection: default API permissions succeeded,

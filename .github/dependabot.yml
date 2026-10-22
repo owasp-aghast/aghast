@@ -12,3 +12,8 @@ updates:
     directory: "/.github/semgrep"
     schedule:
       interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/.github/opencode-install"
+    schedule:
+      interval: "weekly"
