@@ -1,5 +1,28 @@
 # OpenCode provider — implementation notes
 
+## Live CI outcomes
+
+CI runs the live integration and regression jobs through
+`.github/scripts/live-opencode-ci.mjs`. The integration job keeps three attempts;
+the Semgrep regression job keeps ten (and its per-call retry setting). The
+disabled SARIF regression job uses the same policy if re-enabled.
+
+- Completed assertion failures and regression status, finding-count, or location
+  mismatches fail after retries. A later pass resolves an earlier mismatch only
+  for the same test or check. A later quota error cannot erase a mismatch.
+- Quota, upstream session/API/network failures, empty inference responses, timed
+  out attempts, and regression checks reporting `ERROR` without a completed
+  status produce a non-blocking Actions warning after retries. The job summary
+  explicitly records incomplete live coverage.
+- Setup problems, unexpected exceptions, skipped integration tests, missing
+  checks, and absent or malformed test reports remain blocking. They must not
+  silently remove coverage. An empty result set is never a passing run.
+
+Integration classification uses structured Node test events; regression
+classification uses the public checks runner's exported comparison results.
+The integration gate remains required and unchanged. Local `test:opencode`
+keeps its original behavior; warning-only availability handling is CI-specific.
+
 Developer notes for `src/opencode-provider.ts`. Documents dead ends and confirmed findings from investigation so they aren't re-explored.
 
 ## OpenCode 2 adapter (2.1.2)
