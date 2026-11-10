@@ -1,19 +1,36 @@
+# Automated dependency PRs belong to the public repository only.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     groups:
       all-actions:
         patterns:
           - "*"
-  - package-ecosystem: "pip"
-    directory: "/.github/semgrep"
+
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # Hold TypeScript on the 6.x line: TS 7 (the native/Go port) is not yet
+      # supported by typescript-eslint, whose peer range caps at "<6.1.0".
+      # Remove this once typescript-eslint ships a release that allows TS 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/.github/opencode-install"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "pip"
+    directory: "/.github/semgrep"
     schedule:
       interval: "weekly"
