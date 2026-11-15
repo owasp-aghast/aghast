@@ -374,8 +374,8 @@ jobs:
           set -euo pipefail
 
           case "$(uname -s)-$(uname -m)" in
-            Linux-x86_64)  ASSET="opengrep_manylinux_x86" ;;
-            Linux-aarch64) ASSET="opengrep_manylinux_aarch64" ;;
+            Linux-x86_64)  ASSET="opengrep_linux_x86" ;;
+            Linux-aarch64) ASSET="opengrep_linux_aarch64" ;;
             Darwin-x86_64) ASSET="opengrep_osx_x86" ;;
             Darwin-arm64)  ASSET="opengrep_osx_arm64" ;;
             *) echo "Unsupported platform: $(uname -s)-$(uname -m)"; exit 1 ;;
@@ -405,12 +405,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $asset = 'opengrep_windows_x86.exe'
+          $asset = 'opengrep_windows_x86.zip'
           $version = gh release view --repo opengrep/opengrep --json tagName --jq .tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to determine the Opengrep release' }
           $inst = Join-Path $env:USERPROFILE ".opengrep\cli\$version"
           New-Item -ItemType Directory -Force -Path $inst | Out-Null
 
-          gh release download $version --repo opengrep/opengrep --pattern $asset --output (Join-Path $inst 'opengrep.exe')
+          $archive = Join-Path $inst $asset
+          gh release download $version --repo opengrep/opengrep --pattern $asset --output $archive
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to download Opengrep' }
+          # Opengrep 2 packages the executable and required DLLs together.
+          Expand-Archive -LiteralPath $archive -DestinationPath $inst -Force
+          Remove-Item -LiteralPath $archive
 
           $latest = Join-Path $env:USERPROFILE ".opengrep\cli\latest"
           if (Test-Path $latest) { Remove-Item -Recurse -Force $latest }
